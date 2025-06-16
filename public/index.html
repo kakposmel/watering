@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Система автополива</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .zone { background: white; margin: 10px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .status { padding: 5px 10px; border-radius: 15px; color: white; font-weight: bold; }
+        .dry { background: #e74c3c; }
+        .needs_water { background: #f39c12; }
+        .optimal { background: #27ae60; }
+        .too_wet { background: #3498db; }
+        .error { background: #95a5a6; }
+        .pump-active { background: #9b59b6; color: white; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-water { background: #3498db; color: white; }
+        .btn-stop { background: #e74c3c; color: white; }
+        .refresh-btn { background: #27ae60; color: white; font-size: 16px; padding: 15px 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌿 Система автополива</h1>
+        <button class="refresh-btn" onclick="updateData()">🔄 Обновить данные</button>
+        
+        <div id="zones"></div>
+        
+        <div style="margin-top: 30px; background: white; padding: 20px; border-radius: 8px;">
+            <h3>Управление</h3>
+            <button class="btn-stop" onclick="stopAllPumps()">🛑 Остановить все насосы</button>
+            <button class="btn-water" onclick="testWatering()">🚿 Тестовый полив всех зон</button>
+        </div>
+    </div>
+
+    <script>
+        async function updateData() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                displayZones(data);
+            } catch (error) {
+                console.error('Ошибка получения данных:', error);
+            }
+        }
+
+        function displayZones(data) {
+            const container = document.getElementById('zones');
+            container.innerHTML = '';
+
+            data.sensors.forEach((sensor, index) => {
+                const zone = document.createElement('div');
+                zone.className = 'zone';
+                
+                const pumpActive = data.pumps.states[index];
+                const lastWatering = new Date(data.pumps.lastWatering[index]).toLocaleString();
+                
+                zone.innerHTML = `
+                    <h3>Зона ${index + 1} ${pumpActive ? '💧' : ''}</h3>
+                    <div class="status ${sensor.status}">${getStatusText(sensor.status)}</div>
+                    <p><strong>Влажность:</strong> ${sensor.moisturePercent || 'N/A'}%</p>
+                    <p><strong>Сырое значение:</strong> ${sensor.rawValue || 'N/A'}</p>
+                    <p><strong>Последний полив:</strong> ${data.pumps.lastWatering[index] > 0 ? lastWatering : 'Никогда'}</p>
+                    <p><strong>Поливов сегодня:</strong> ${data.pumps.dailyCount[index]}</p>
+                    <div>
+                        <button class="btn-water" onclick="waterZone(${index})" ${pumpActive ? 'disabled' : ''}>
+                            ${pumpActive ? '🔄 Полив...' : '💧 Полить'}
+                        </button>
+                        <button class="btn-stop" onclick="stopPump(${index})" ${!pumpActive ? 'disabled' : ''}>
+                            🛑 Остановить
+                        </button>
+                    </div>
+                `;
+                
+                if (pumpActive) {
+                    zone.classList.add('pump-active');
+                }
+                
+                container.appendChild(zone);
+            });
+        }
+
+        function getStatusText(status) {
+            const statusMap = {
+                'dry': '🏜️ Сухо - нужен полив',
+                'needs_water': '🌱 Нужна вода',
+                'optimal': '✅ Оптимально',
+                'too_wet': '💦 Слишком влажно',
+                'error': '❌ Ошибка датчика'
+            };
+            return statusMap[status] || status;
+        }
+
+        async function waterZone(index) {
+            try {
+                await fetch(`/api/water/${index}`, { method: 'POST' });
+                setTimeout(updateData, 1000);
+            } catch (error) {
+                console.error('Ошибка полива:', error);
+            }
+        }
+
+        async function stopPump(index) {
+            try {
+                await fetch(`/api/stop/${index}`, { method: 'POST' });
+                setTimeout(updateData, 1000);
+            } catch (error) {
+                console.error('Ошибка остановки:', error);
+            }
+        }
+
+        async function stopAllPumps() {
+            try {
+                await fetch('/api/stop-all', { method: 'POST' });
+                setTimeout(updateData, 1000);
+            } catch (error) {
+                console.error('Ошибка остановки всех насосов:', error);
+            }
+        }
+
+        async function testWatering() {
+            if (confirm('Запустить тестовый полив всех зон на 2 секунды?')) {
+                try {
+                    await fetch('/api/test-all', { method: 'POST' });
+                    setTimeout(updateData, 1000);
+                } catch (error) {
+                    console.error('Ошибка тестового полива:', error);
+                }
+            }
+        }
+
+        // Автообновление каждые 30 секунд
+        setInterval(updateData, 30000);
+        
+        // Первоначальная загрузка
+        updateData();
+    </script>
+</body>
+</html>
