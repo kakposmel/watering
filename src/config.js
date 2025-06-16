@@ -21,5 +21,11 @@ module.exports = {
   },
   
   // Расписание проверок
-  schedule: '*/15 * * * *' // Каждые 15 минут
+  schedule: '*/15 * * * *', // Каждые 15 минут
+  
+  // Telegram bot настройки
+  telegram: {
+    token: process.env.TELEGRAM_BOT_TOKEN || '', // Токен бота из BotFather
+    chatId: process.env.TELEGRAM_CHAT_ID || ''   // ID чата для уведомлений
+  }
 };

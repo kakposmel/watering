@@ -2,7 +2,8 @@ const config = require('./config');
 const logger = require('./logger');
 
 class PumpController {
-  constructor() {
+  constructor(telegramBot = null) {
+    this.telegramBot = telegramBot;
     this.relays = {};
     this.pumpStates = [];
     this.lastWatering = [];
@@ -68,6 +69,11 @@ class PumpController {
       this.lastWatering[pumpIndex] = now;
       this.dailyWateringCount[pumpIndex]++;
       
+      // Отправляем уведомление в Telegram
+      if (this.telegramBot) {
+        this.telegramBot.sendWateringNotification(pumpIndex, 'started');
+      }
+      
       return true;
     } catch (error) {
       logger.error(`Ошибка запуска насоса ${pumpIndex + 1}:`, error);
@@ -82,6 +88,12 @@ class PumpController {
       this.relays[pumpIndex].writeSync(1); // Выключено
       this.pumpStates[pumpIndex] = false;
       logger.info(`Полив зоны ${pumpIndex + 1} завершен`);
+      
+      // Отправляем уведомление в Telegram
+      if (this.telegramBot) {
+        this.telegramBot.sendWateringNotification(pumpIndex, 'finished');
+      }
+      
       return true;
     } catch (error) {
       logger.error(`Ошибка остановки насоса ${pumpIndex + 1}:`, error);

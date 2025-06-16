@@ -3,6 +3,7 @@ const path = require('path');
 const MoistureSensor = require('./src/moisture');
 const PumpController = require('./src/pump');
 const AutoWateringScheduler = require('./src/scheduler');
+const TelegramBotController = require('./src/telegram');
 const config = require('./src/config');
 const logger = require('./src/logger');
 
@@ -10,8 +11,12 @@ const app = express();
 
 // Инициализация компонентов
 const moistureSensor = new MoistureSensor();
-const pumpController = new PumpController();
-const scheduler = new AutoWateringScheduler(moistureSensor, pumpController);
+const telegramBot = new TelegramBotController(moistureSensor, null);
+const pumpController = new PumpController(telegramBot);
+const scheduler = new AutoWateringScheduler(moistureSensor, pumpController, telegramBot);
+
+// Связываем Telegram bot с pump controller
+telegramBot.pumpController = pumpController;
 
 // Middleware
 app.use(express.json());
@@ -128,6 +133,14 @@ async function startServer() {
     if (!sensorInit) {
       logger.error('Не удалось инициализировать датчики');
       process.exit(1);
+    }
+    
+    // Инициализация Telegram bot
+    const telegramInit = telegramBot.initialize();
+    if (telegramInit) {
+      logger.info('Telegram bot подключен');
+    } else {
+      logger.warn('Telegram bot не настроен - продолжаем без него');
     }
     
     // Запуск планировщика

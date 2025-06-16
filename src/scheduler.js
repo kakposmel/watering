@@ -3,9 +3,10 @@ const config = require('./config');
 const logger = require('./logger');
 
 class AutoWateringScheduler {
-  constructor(moistureSensor, pumpController) {
+  constructor(moistureSensor, pumpController, telegramBot = null) {
     this.moistureSensor = moistureSensor;
     this.pumpController = pumpController;
+    this.telegramBot = telegramBot;
     this.isRunning = false;
   }
 
@@ -36,6 +37,11 @@ class AutoWateringScheduler {
           const success = await this.pumpController.startWatering(i);
           if (success) {
             logger.info(`Автополив зоны ${i + 1} запущен`);
+            
+            // Отправляем уведомление об автоматическом поливе
+            if (this.telegramBot) {
+              this.telegramBot.sendAutomaticWateringNotification(i, reading.status);
+            }
           }
         } else if (reading.status === 'too_wet') {
           logger.warn(`Зона ${i + 1}: слишком влажно! Проверьте дренаж.`);
