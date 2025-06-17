@@ -4,6 +4,7 @@ const MoistureSensor = require('./src/moisture');
 const PumpController = require('./src/pump');
 const AutoWateringScheduler = require('./src/scheduler');
 const TelegramBotController = require('./src/telegram');
+const LEDController = require('./src/led');
 const config = require('./src/config');
 const logger = require('./src/logger');
 
@@ -11,9 +12,10 @@ const app = express();
 
 // Инициализация компонентов
 const moistureSensor = new MoistureSensor();
+const ledController = new LEDController();
 const telegramBot = new TelegramBotController(moistureSensor, null);
 const pumpController = new PumpController(telegramBot);
-const scheduler = new AutoWateringScheduler(moistureSensor, pumpController, telegramBot);
+const scheduler = new AutoWateringScheduler(moistureSensor, pumpController, telegramBot, ledController);
 
 // Связываем Telegram bot с pump controller
 telegramBot.pumpController = pumpController;
@@ -27,6 +29,9 @@ app.get('/api/status', async (req, res) => {
   try {
     const sensors = await moistureSensor.readAllSensors();
     const pumps = pumpController.getPumpStates();
+    
+    // Обновляем LED на основе показаний датчиков
+    ledController.updateFromSensorReadings(sensors);
     
     res.json({
       sensors,
@@ -109,12 +114,14 @@ app.get('/', (req, res) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   logger.info('Получен сигнал SIGINT, завершение работы...');
+  ledController.cleanup();
   pumpController.cleanup();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   logger.info('Получен сигнал SIGTERM, завершение работы...');
+  ledController.cleanup();
   pumpController.cleanup();
   process.exit(0);
 });
@@ -133,6 +140,14 @@ async function startServer() {
     if (!sensorInit) {
       logger.error('Не удалось инициализировать датчики');
       process.exit(1);
+    }
+    
+    // Инициализация LED индикатора
+    const ledInit = ledController.initialize();
+    if (ledInit) {
+      logger.info('LED индикатор подключен');
+    } else {
+      logger.warn('LED индикатор не настроен - продолжаем без него');
     }
     
     // Инициализация Telegram bot

@@ -14,6 +14,7 @@
     "express": "^5.1.0",
     "gpio": "^0.2.10",
     "node-cron": "^4.1.0",
-    "winston": "^3.17.0"
+    "winston": "^3.17.0",
+    "rpi-ws281x-native": "^1.0.4"
   }
 }

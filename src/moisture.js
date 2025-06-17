@@ -8,8 +8,8 @@ class MoistureSensor {
     this.lastReadings = [];
     this.calibration = {
       // Калибровочные значения для YL-69 (по спецификации)
-      dry: 300,    // 0-300: сухая почва
-      wet: 700,    // 300-700: влажная почва
+      dry: config.moisture.thresholds.dry,    // Сухая почва
+      wet: config.moisture.thresholds.wet,    // Влажная почва
       water: 950   // 700-950: датчик в воде
     };
     this.busOpened = false;

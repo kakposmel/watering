@@ -3,10 +3,11 @@ const config = require('./config');
 const logger = require('./logger');
 
 class AutoWateringScheduler {
-  constructor(moistureSensor, pumpController, telegramBot = null) {
+  constructor(moistureSensor, pumpController, telegramBot = null, ledController = null) {
     this.moistureSensor = moistureSensor;
     this.pumpController = pumpController;
     this.telegramBot = telegramBot;
+    this.ledController = ledController;
     this.isRunning = false;
   }
 
@@ -21,6 +22,11 @@ class AutoWateringScheduler {
     try {
       logger.info('Начинается проверка влажности...');
       const readings = await this.moistureSensor.readAllSensors();
+      
+      // Обновляем LED на основе средней влажности
+      if (this.ledController) {
+        this.ledController.updateFromSensorReadings(readings);
+      }
       
       for (let i = 0; i < readings.length; i++) {
         const reading = readings[i];
