@@ -1,7 +1,6 @@
 const { Gpio } = require('onoff');
 const config = require('./config');
 const logger = require('./logger');
-const { Gpio } = require('onoff');
 
 class PumpController {
   constructor(telegramBot = null) {
