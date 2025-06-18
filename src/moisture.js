@@ -13,7 +13,7 @@ class MoistureSensor {
     try {
       const bus = await i2c.openPromisified(1);
       this.adc = await ADS1115(bus);    // создаём экземпляр ADS1115
-      this.adc.gain = '2/3';                // диапазон наших датчиков
+      this.adc.gain = 1;                // диапазон наших датчиков
       logger.info('ADS1115 инициализирован c gain=2/3');
       return true;
     } catch (err) {
