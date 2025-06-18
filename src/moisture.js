@@ -27,7 +27,7 @@ class MoistureSensor {
     try {
       const mux = `${channel}+GND`;   // например, '0+GND'
       const mv = await this.adc.measure(mux);  // возвращает мВ
-      logger.debug(`Канал ${channel}: ${mv} мВ`);
+      // logger.debug(`Канал ${channel}: ${mv} мВ`); // убираем лишний лог
       return mv;
     } catch (err) {
       logger.error(`Чтение канала ${channel} не удалось:`, err);
@@ -36,23 +36,32 @@ class MoistureSensor {
   }
 
   interpretMoisture(voltage_mv, channel) {
-    let moisture, status;
+    let moisturePercent, status;
 
-    if (voltage_mv >= 3500) {
-      moisture = 0; status = 'dry/air';
-    } else if (voltage_mv >= 2500) {
-      moisture = Math.round((3500 - voltage_mv) / 10); status = 'dry';
-    } else if (voltage_mv >= 1500) {
-      moisture = Math.round(30 + (2500 - voltage_mv) / 10); status = 'moist';
-    } else if (voltage_mv >= 800) {
-      moisture = Math.round(60 + (1500 - voltage_mv) / 10); status = 'wet';
+    if (voltage_mv > 27800) {
+      moisturePercent = 0;
+      status = 'air';
+    } else if (voltage_mv > 19000) {
+      // dry: 0%...30%
+      moisturePercent = Math.round(30 * (27800 - voltage_mv) / (27800 - 19000));
+      status = 'dry';
+    } else if (voltage_mv > 10000) {
+      // moist: 31%...70%
+      moisturePercent = Math.round(31 + 39 * (19000 - voltage_mv) / (19000 - 10000));
+      status = 'moist';
+    } else if (voltage_mv > 8000) {
+      // wet: 71%...90%
+      moisturePercent = Math.round(71 + 19 * (10000 - voltage_mv) / (10000 - 8000));
+      status = 'wet';
     } else {
-      moisture = Math.round(80 + (800 - voltage_mv) / 20); status = 'water';
+      // water: 91%...100%
+      moisturePercent = Math.round(91 + 9 * (8000 - voltage_mv) / 8000);
+      status = 'water';
     }
 
-    moisture = Math.max(0, Math.min(100, moisture));
-    logger.info(`Канал ${channel}: ${voltage_mv} мВ → ${status} (${moisture}%)`);
-    return { voltage: voltage_mv, moisture, status };
+    moisturePercent = Math.max(0, Math.min(100, moisturePercent));
+    // logger.info(`Канал ${channel}: ${voltage_mv} мВ → ${status} (${moisturePercent}%)`); // убираем лишний лог
+    return { rawValue: voltage_mv, moisturePercent, status };
   }
 
   async readAllSensors() {
@@ -63,7 +72,7 @@ class MoistureSensor {
         const res = this.interpretMoisture(mv, ch);
         readings.push({ channel: ch, ...res, timestamp: new Date() });
       } else {
-        readings.push({ channel: ch, voltage: null, moisture: null, status: 'error', timestamp: new Date() });
+        readings.push({ channel: ch, rawValue: null, moisturePercent: null, status: 'error', timestamp: new Date() });
       }
       await new Promise(r => setTimeout(r, 100));
     }
