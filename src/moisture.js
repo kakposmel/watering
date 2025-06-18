@@ -35,8 +35,8 @@ class MoistureSensor {
     try {
       const measure = await this.adc.readSingleEnded({ channel });
       // measure в милливольтах, диапазон 0-4200 мВ при питании 5В
-      // Преобразуем в 10-битное значение (0-1023)
-      const rawValue = Math.round((measure / 4200) * 1023);
+      // Преобразуем в 16-битное значение (0-65535)
+      const rawValue = Math.round((measure / 4200) * 65535);
 
       // Фильтрация выбросов
       if (rawValue < 0 || rawValue > 1100) {
