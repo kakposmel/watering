@@ -71,7 +71,8 @@ class MoistureSensor {
         readings.push({
           channel: i,
           rawValue: median,
-          moistureStatus: this.getStatus(median),
+          moisturePercent: this.getMoisturePercent(median), 
+          status: this.getStatus(median), // используйте 'status', как в scheduler.js
           timestamp: new Date()
         });
       } else {
@@ -86,6 +87,15 @@ class MoistureSensor {
 
     this.lastReadings = readings;
     return readings;
+  }
+
+  getMoisturePercent(rawValue) {
+  // Пример: 0% — сухо, 100% — вода
+  if (rawValue === null) return null;
+  const { dry, water } = this.calibration;
+  if (rawValue <= dry) return 0;
+  if (rawValue >= water) return 100;
+  return Math.round(((rawValue - dry) / (water - dry)) * 100);
   }
 
   getStatus(rawValue) {
