@@ -29,14 +29,6 @@ class MoistureSensor {
       const testReading = await this.adc.readSingleEnded({ channel: 0 });
       logger.info(`ADS1x15 инициализирован. Тестовое чтение: ${testReading} мВ`);
 
-
-            // Временно добавьте в код для отладки:
-      console.log('Датчик на воздухе: ', await this.readSensor(0));
-      console.log('Датчик в сухой земле: ', await this.readSensor(1));  
-      console.log('Датчик во влажной земле: ', await this.readSensor(2));
-      console.log('Датчик в воде: ', await this.readSensor(3));
-
-
       return true;
     } catch (error) {
       logger.error('Ошибка инициализации ADS1x15:', error);
@@ -44,34 +36,121 @@ class MoistureSensor {
     }
   }
 
-  async readSensor(channel) {
-    try {
-      // measure уже в милливольтах!
-      // Для диапазона ±6.144V (когда питание 5V)
-      const measure = await this.adc.readSingleEnded({
-        channel: channel,
-        pga: 6144,    // ±6.144V диапазон
-        sps: 250      // 250 выборок в секунду
-      });      
-      // Логируем сырые значения для отладки
-      logger.debug(`Канал ${channel}: ${measure} мВ (${measure/1000} В)`);
+ async readSensor(channel) {
+  try {
+    // Используем меньший диапазон для лучшей точности
+    // PGA 4096 = ±4.096V - оптимально для датчиков 0-4.2V
+    const measure = await this.adc.readSingleEnded({
+      channel: channel,
+      pga: 4096,    // ±4.096V диапазон (было 6144)
+      sps: 128      // Уменьшим частоту для стабильности (было 250)
+    });
+    
+    // Логируем сырые значения для отладки
+    logger.debug(`Канал ${channel}: ${measure} мВ (${measure/1000} В)`);
+    
+    // Расширим допустимый диапазон для диагностики
+    if (measure < -100 || measure > 4300) {
+      logger.warn(`Подозрительное значение с канала ${channel}: ${measure} мВ`);
       
-      // Проверка разумности значений (0-4200 мВ)
-      if (measure < 0 || measure > 4500) {
-        logger.warn(`Подозрительное значение с канала ${channel}: ${measure} мВ`);
+      // Попробуем повторное чтение с задержкой
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const retryMeasure = await this.adc.readSingleEnded({
+        channel: channel,
+        pga: 4096,
+        sps: 128
+      });
+      
+      logger.debug(`Повторное чтение канала ${channel}: ${retryMeasure} мВ`);
+      
+      if (retryMeasure < -100 || retryMeasure > 4300) {
+        logger.error(`Канал ${channel}: стабильно некорректные значения. Проверьте подключение.`);
         return null;
       }
-
-      return Math.round(measure);
-    } catch (error) {
-      logger.error(`Ошибка чтения канала ${channel}:`, error);
-      return null;
+      
+      return Math.round(retryMeasure);
     }
+    
+    return Math.round(measure);
+  } catch (error) {
+    logger.error(`Ошибка чтения канала ${channel}:`, error);
+    return null;
   }
+}
+
+// Добавьте функцию для калибровки и интерпретации значений
+interpretMoisture(voltage_mv, channel) {
+  // Инвертированная логика: 
+  // Высокое напряжение = сухо (воздух)
+  // Низкое напряжение = влажно (вода)
+  
+  let moisturePercent;
+  let status;
+  
+  if (voltage_mv >= 3500) {
+    // Очень сухо / воздух
+    moisturePercent = 0;
+    status = 'dry/air';
+  } else if (voltage_mv >= 2500) {
+    // Сухая почва
+    moisturePercent = Math.round((3500 - voltage_mv) / 10);
+    status = 'dry';
+  } else if (voltage_mv >= 1500) {
+    // Влажная почва
+    moisturePercent = Math.round(30 + (2500 - voltage_mv) / 10);
+    status = 'moist';
+  } else if (voltage_mv >= 800) {
+    // Очень влажно
+    moisturePercent = Math.round(60 + (1500 - voltage_mv) / 10);
+    status = 'wet';
+  } else {
+    // Вода
+    moisturePercent = Math.round(80 + (800 - voltage_mv) / 20);
+    status = 'water';
+  }
+  
+  // Ограничиваем диапазон 0-100%
+  moisturePercent = Math.max(0, Math.min(100, moisturePercent));
+  
+  logger.info(`Канал ${channel}: ${voltage_mv} мВ, ${status}, ${moisturePercent}%`);
+  
+  return {
+    voltage: voltage_mv,
+    moisture: moisturePercent,
+    status: status
+  };
+}
+
+// Функция для диагностики всех каналов
+async diagnoseSensors() {
+  logger.info('=== Диагностика датчиков ===');
+  
+  for (let channel = 0; channel < 4; channel++) {
+    const voltage = await this.readSensor(channel);
+    if (voltage !== null) {
+      const result = this.interpretMoisture(voltage, channel);
+      logger.info(`Канал ${channel}: ${result.voltage}мВ -> ${result.status} (${result.moisture}%)`);
+    } else {
+      logger.error(`Канал ${channel}: Не удалось прочитать`);
+    }
+    
+    // Задержка между чтениями
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  
+  logger.info('=== Ожидаемые значения ===');
+  logger.info('Канал 0 (воздух): ~3500-4000 мВ');
+  logger.info('Канал 1 (сухая почва): ~2500-3500 мВ');
+  logger.info('Канал 2 (влажная почва): ~1500-2500 мВ');
+  logger.info('Канал 3 (вода): ~500-1500 мВ');
+}
 
   
 
   async readAllSensors() {
+    await this.diagnoseSensors();
+    
     const readings = [];
 
     for (let i = 0; i < config.adcChannels.length; i++) {
