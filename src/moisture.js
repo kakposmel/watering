@@ -31,10 +31,10 @@ class MoistureSensor {
 
 
       // Временно добавьте в код для отладки:
-console.log('Датчик на воздухе: ', await sensor.readSensor(0));
-console.log('Датчик в сухой земле: ', await sensor.readSensor(1));  
-console.log('Датчик во влажной земле: ', await sensor.readSensor(2));
-console.log('Датчик в воде: ', await sensor.readSensor(3));
+console.log('Датчик на воздухе: ', await readSensor(0));
+console.log('Датчик в сухой земле: ', await readSensor(1));  
+console.log('Датчик во влажной земле: ', await readSensor(2));
+console.log('Датчик в воде: ', await readSensor(3));
 
       return true;
     } catch (error) {
