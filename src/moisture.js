@@ -35,41 +35,40 @@ class MoistureSensor {
     }
   }
 
-  interpretMoisture(voltage_mv, channel) {
+   interpretMoisture(voltage_mv) {
+    const t = config.moisture.thresholds;
     let moisturePercent, status;
 
-    if (voltage_mv > 27800) {
+    if (voltage_mv > t.air) {
       moisturePercent = 0;
       status = 'air';
-    } else if (voltage_mv > 19000) {
+    } else if (voltage_mv > t.dry) {
       // dry: 0%...30%
-      moisturePercent = Math.round(30 * (27800 - voltage_mv) / (27800 - 19000));
+      moisturePercent = Math.round(30 * (t.air - voltage_mv) / (t.air - t.dry));
       status = 'dry';
-    } else if (voltage_mv > 10000) {
+    } else if (voltage_mv > t.moist) {
       // moist: 31%...70%
-      moisturePercent = Math.round(31 + 39 * (19000 - voltage_mv) / (19000 - 10000));
+      moisturePercent = Math.round(31 + 39 * (t.dry - voltage_mv) / (t.dry - t.moist));
       status = 'moist';
-    } else if (voltage_mv > 8000) {
+    } else if (voltage_mv > t.wet) {
       // wet: 71%...90%
-      moisturePercent = Math.round(71 + 19 * (10000 - voltage_mv) / (10000 - 8000));
+      moisturePercent = Math.round(71 + 19 * (t.moist - voltage_mv) / (t.moist - t.wet));
       status = 'wet';
     } else {
       // water: 91%...100%
-      moisturePercent = Math.round(91 + 9 * (8000 - voltage_mv) / 8000);
+      moisturePercent = Math.round(91 + 9 * (t.wet - voltage_mv) / (t.wet - t.water));
       status = 'water';
     }
 
     moisturePercent = Math.max(0, Math.min(100, moisturePercent));
-    // logger.info(`Канал ${channel}: ${voltage_mv} мВ → ${status} (${moisturePercent}%)`); // убираем лишний лог
     return { rawValue: voltage_mv, moisturePercent, status };
   }
-
   async readAllSensors() {
     const readings = [];
     for (const ch of config.adcChannels) {
       const mv = await this.readChannel(ch);
       if (mv !== null) {
-        const res = this.interpretMoisture(mv, ch);
+        const res = this.interpretMoisture(mv);
         readings.push({ channel: ch, ...res, timestamp: new Date() });
       } else {
         readings.push({ channel: ch, rawValue: null, moisturePercent: null, status: 'error', timestamp: new Date() });

@@ -36,10 +36,10 @@ class AutoWateringScheduler {
           continue;
         }
         
-        logger.info(`Зона ${i + 1}: ${reading.moisturePercent}% (${reading.status})`);
+        logger.info(`Зона ${i + 1}: ${reading.moisturePercent}% (${reading.rawValue}: ${reading.status})`);
         
         // Автоматический полив при сухой почве
-        if (reading.status === 'dry' || reading.status === 'needs_water') {
+        if (reading.status === 'dry' || reading.status === 'air') {
           const success = await this.pumpController.startWatering(i);
           if (success) {
             logger.info(`Автополив зоны ${i + 1} запущен`);
