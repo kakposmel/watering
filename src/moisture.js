@@ -6,11 +6,14 @@ class MoistureSensor {
   constructor() {
     this.adc = new ads1x15();
     this.lastReadings = [];
+    
+    // Калибровка для милливольт (НЕ для 10-битных значений!)
     this.calibration = {
-      // Калибровочные значения для YL-69 (по спецификации)
+      // При питании датчика 5V:
+      // Сухая почва: высокое сопротивление = низкое напряжение
       dry: config.moisture.thresholds.dry,    // Сухая почва
       wet: config.moisture.thresholds.wet,    // Влажная почва
-      water: 950   // 700-950: датчик в воде
+      water: config.moisture.thresholds.water,    // Влажная почва
     };
     this.busOpened = false;
   }
@@ -18,12 +21,21 @@ class MoistureSensor {
   async initialize() {
     try {
       if (!this.busOpened) {
-        await this.adc.openBus(1); // Обычно /dev/i2c-1
+        await this.adc.openBus(1);
         this.busOpened = true;
       }
-      // Проверка чтения с первого канала
-      await this.adc.readSingleEnded({ channel: 0 });
-      logger.info('ADS1x15 инициализирован успешно');
+      
+      // Тестовое чтение
+      const testReading = await this.adc.readSingleEnded({ channel: 0 });
+      logger.info(`ADS1x15 инициализирован. Тестовое чтение: ${testReading} мВ`);
+
+
+      // Временно добавьте в код для отладки:
+console.log('Датчик на воздухе: ', await sensor.readSensor(0));
+console.log('Датчик в сухой земле: ', await sensor.readSensor(1));  
+console.log('Датчик во влажной земле: ', await sensor.readSensor(2));
+console.log('Датчик в воде: ', await sensor.readSensor(3));
+
       return true;
     } catch (error) {
       logger.error('Ошибка инициализации ADS1x15:', error);
@@ -33,18 +45,19 @@ class MoistureSensor {
 
   async readSensor(channel) {
     try {
+      // measure уже в милливольтах!
       const measure = await this.adc.readSingleEnded({ channel });
-      // measure в милливольтах, диапазон 0-4200 мВ при питании 5В
-      // Преобразуем в 16-битное значение (0-65535)
-      const rawValue = Math.round((measure / 4200) * 65535);
-
-      // Фильтрация выбросов
-      if (rawValue < 0 || rawValue > 1100) {
-        logger.warn(`Подозрительное значение с канала ${channel}: ${rawValue}`);
+      
+      // Логируем сырые значения для отладки
+      logger.debug(`Канал ${channel}: ${measure} мВ (${measure/1000} В)`);
+      
+      // Проверка разумности значений (0-4200 мВ)
+      if (measure < 0 || measure > 4500) {
+        logger.warn(`Подозрительное значение с канала ${channel}: ${measure} мВ`);
         return null;
       }
 
-      return rawValue;
+      return Math.round(measure);
     } catch (error) {
       logger.error(`Ошибка чтения канала ${channel}:`, error);
       return null;
@@ -57,7 +70,7 @@ class MoistureSensor {
     for (let i = 0; i < config.adcChannels.length; i++) {
       const channel = config.adcChannels[i];
 
-      // Делаем 3 замера и берем медиану для надежности
+      // 3 замера для надежности
       const samples = [];
       for (let j = 0; j < 3; j++) {
         const value = await this.readSensor(channel);
@@ -68,18 +81,24 @@ class MoistureSensor {
       if (samples.length > 0) {
         samples.sort((a, b) => a - b);
         const median = samples[Math.floor(samples.length / 2)];
+        
         readings.push({
           channel: i,
           rawValue: median,
-          moisturePercent: this.getMoisturePercent(median), 
-          status: this.getStatus(median), // используйте 'status', как в scheduler.js
+          voltage: Math.round(median) / 1000, // Вольты для удобства
+          moisturePercent: this.getMoisturePercent(median),
+          status: this.getStatus(median),
           timestamp: new Date()
         });
+        
+        logger.info(`Канал ${i}: ${median} мВ, ${this.getStatus(median)}, ${this.getMoisturePercent(median)}%`);
       } else {
         readings.push({
           channel: i,
           rawValue: null,
-          moistureStatus: 'error',
+          voltage: null,
+          moisturePercent: null,
+          status: 'error',
           timestamp: new Date()
         });
       }
@@ -89,22 +108,27 @@ class MoistureSensor {
     return readings;
   }
 
-  getMoisturePercent(rawValue) {
-  // Пример: 0% — сухо, 100% — вода
-  if (rawValue === null) return null;
-  const { dry, water } = this.calibration;
-  if (rawValue <= dry) return 0;
-  if (rawValue >= water) return 100;
-  return Math.round(((rawValue - dry) / (water - dry)) * 100);
+  getMoisturePercent(milliVolts) {
+    if (milliVolts === null) return null;
+    
+    const { dry, water } = this.calibration;
+    
+    // Инвертируем логику: чем больше напряжение, тем больше влажность
+    if (milliVolts <= dry) return 0;    // Сухо
+    if (milliVolts >= water) return 100; // Максимальная влажность
+    
+    return Math.round(((milliVolts - dry) / (water - dry)) * 100);
   }
 
-  getStatus(rawValue) {
-    if (rawValue === null) return 'error';
+  getStatus(milliVolts) {
+    if (milliVolts === null) return 'error';
 
-    if (rawValue <= this.calibration.dry) return 'dry';
-    if (rawValue > this.calibration.dry && rawValue <= this.calibration.wet) return 'wet';
-    if (rawValue > this.calibration.wet && rawValue <= this.calibration.water) return 'in_water';
-    return 'out_of_range';
+    const { dry, wet, water } = this.calibration;
+
+    if (milliVolts <= dry) return 'dry';
+    if (milliVolts > dry && milliVolts <= wet) return 'moist';
+    if (milliVolts > wet && milliVolts <= water) return 'wet';
+    return 'in_water';
   }
 
   getLastReadings() {
