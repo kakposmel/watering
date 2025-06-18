@@ -10,13 +10,14 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "ads1x15": "^1.2.0",
+    "ads1115": "^1.2.0",
     "express": "^5.1.0",
     "gpio": "^0.2.10",
+    "i2c-bus": "^5.2.3",
     "node-cron": "^4.1.0",
-    "winston": "^3.17.0",
-    "rpi-ws281x-native": "^1.0.4",
     "node-telegram-bot-api": "^0.66.0",
-    "onoff": "^6.0.3"
+    "onoff": "^6.0.3",
+    "rpi-ws281x-native": "^1.0.4",
+    "winston": "^3.17.0"
   }
 }
