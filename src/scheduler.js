@@ -50,9 +50,6 @@ class AutoWateringScheduler {
             }
           } else {
             logger.warn(`Не удалось запустить автополив зоны ${i + 1}`);
-            if (this.telegramBot) {
-              this.telegramBot.sendWarningNotification(`Не удалось запустить автополив зоны ${i + 1}. Проверьте систему.`);
-            }
           }
         } else if (reading.status === 'water') {
           const warningMsg = `Зона ${i + 1}: переувлажнение! Проверьте дренаж и отключите полив.`;
