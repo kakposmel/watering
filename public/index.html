@@ -619,7 +619,7 @@
 
         function getStatusText(status) {
             const statusMap = {
-                'air': 'Воздух - срочно полить',
+                'air': 'Воздух - подключите датчик',
                 'dry': 'Сухо - требуется полив',
                 'moist': 'Умеренная влажность',
                 'wet': 'Хорошая влажность',
@@ -632,7 +632,7 @@
 
         async function updateHistory() {
             try {
-                const response = await fetch('/api/history');
+                const response = await fetch('/api/history?limit=8640');
                 const history = await response.json();
                 
                 const container = document.getElementById('historyList');
