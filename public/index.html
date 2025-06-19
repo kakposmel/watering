@@ -88,6 +88,37 @@
             font-size: 1.1em;
             font-weight: bold;
             color: #2c3e50;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .zone-title:hover .rename-icon {
+            opacity: 1;
+        }
+        
+        .rename-icon {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            margin-left: 5px;
+            font-size: 0.8em;
+            color: #7f8c8d;
+        }
+        
+        .zone-name-input {
+            font-size: 1.1em;
+            font-weight: bold;
+            border: 2px solid #3498db;
+            border-radius: 4px;
+            padding: 2px 6px;
+            background: white;
+            color: #2c3e50;
+            width: 100%;
+            max-width: 200px;
+        }
+        
+        .zone-name-input:focus {
+            outline: none;
+            border-color: #2980b9;
         }
         
         .toggle-switch {
@@ -498,14 +529,16 @@
                 const zoneEnabled = data.settings?.zones[index]?.enabled !== false;
                 const sensorEnabled = data.settings?.zones[index]?.sensorEnabled !== false;
                 const pumpEnabled = data.settings?.zones[index]?.pumpEnabled !== false;
+                const zoneName = data.settings?.zones[index]?.name || `Зона ${index + 1}`;
 
                 zone.innerHTML = `
                     ${pumpActive ? '<div class="pump-indicator"></div>' : ''}
                     
                     <div class="zone-header">
-                        <div class="zone-title">
+                        <div class="zone-title" onclick="startRename(${index})" title="Нажмите чтобы переименовать">
                             <i class="fas fa-leaf"></i>
-                            Зона ${index + 1}
+                            <span class="zone-name" id="zone-name-${index}">${zoneName}</span>
+                            <i class="fas fa-edit rename-icon"></i>
                         </div>
                         <div class="toggle-switch ${zoneEnabled ? 'active' : ''}" 
                              onclick="toggleZone(${index})" 
@@ -696,6 +729,59 @@
                     console.error('Ошибка при тестовом поливе:', error);
                 }
             }
+        }
+
+        async function startRename(zoneIndex) {
+            const nameElement = document.getElementById(`zone-name-${zoneIndex}`);
+            const currentName = nameElement.textContent;
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentName;
+            input.className = 'zone-name-input';
+            input.maxLength = 50;
+            
+            // Replace the name span with input
+            nameElement.style.display = 'none';
+            nameElement.parentNode.insertBefore(input, nameElement);
+            input.focus();
+            input.select();
+            
+            const finishRename = async (save = false) => {
+                if (save && input.value.trim() && input.value.trim() !== currentName) {
+                    try {
+                        const response = await fetch(`/api/rename-zone/${zoneIndex}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ name: input.value.trim() })
+                        });
+                        
+                        const result = await response.json();
+                        if (result.success) {
+                            nameElement.textContent = result.name;
+                        } else {
+                            alert(result.error || 'Ошибка переименования зоны');
+                        }
+                    } catch (error) {
+                        console.error('Ошибка переименования зоны:', error);
+                        alert('Ошибка переименования зоны');
+                    }
+                }
+                
+                input.remove();
+                nameElement.style.display = '';
+            };
+            
+            input.addEventListener('blur', () => finishRename(true));
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    finishRename(true);
+                } else if (e.key === 'Escape') {
+                    finishRename(false);
+                }
+            });
         }
 
         async function updateChart() {

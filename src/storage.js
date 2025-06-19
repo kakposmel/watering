@@ -163,6 +163,22 @@ class Storage {
       return null;
     }
   }
+
+  async updateZoneName(zoneIndex, newName) {
+    try {
+      const settings = await this.loadSettings();
+      if (settings.zones[zoneIndex]) {
+        settings.zones[zoneIndex].name = newName;
+        await this.saveSettings(settings);
+        logger.debug(`Зона ${zoneIndex + 1} переименована в "${newName}"`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error('Ошибка переименования зоны:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = Storage;

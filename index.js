@@ -102,6 +102,47 @@ app.post('/api/toggle-zone/:zone', async (req, res) => {
   }
 });
 
+app.post('/api/rename-zone/:zone', async (req, res) => {
+  const zone = parseInt(req.params.zone);
+  const { name } = req.body;
+  
+  if (zone < 0 || zone >= config.relays.length) {
+    return res.status(400).json({ error: 'Неверный номер зоны' });
+  }
+  
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Имя зоны не может быть пустым' });
+  }
+  
+  if (name.length > 50) {
+    return res.status(400).json({ error: 'Имя зоны не может быть длиннее 50 символов' });
+  }
+  
+  try {
+    const success = await storage.updateZoneName(zone, name.trim());
+    
+    if (success) {
+      // Уведомление в Telegram о переименовании зоны
+      if (telegramBot.bot) {
+        telegramBot.sendSystemNotification(
+          `Зона ${zone + 1} переименована в "${name.trim()}"`
+        );
+      }
+      
+      res.json({ 
+        success: true, 
+        name: name.trim(),
+        message: `Зона ${zone + 1} переименована в "${name.trim()}"`
+      });
+    } else {
+      res.status(400).json({ error: 'Не удалось переименовать зону' });
+    }
+  } catch (error) {
+    logger.error(`Ошибка переименования зоны ${zone + 1}:`, error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 app.post('/api/water/:zone', async (req, res) => {
   const zone = parseInt(req.params.zone);
   
