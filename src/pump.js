@@ -114,11 +114,13 @@ class PumpController {
           duration: config.watering.duration,
           dailyCount: this.dailyWateringCount[pumpIndex]
         });
+        // Сохраняем состояние поливов
+        await this.saveWateringState();
       }
 
       // Автоматическое выключение через заданное время
-      setTimeout(() => {
-        this.stopWatering(pumpIndex, true);
+      setTimeout(async () => {
+        await this.stopWatering(pumpIndex, true);
       }, config.watering.duration);
 
       return true;
@@ -141,7 +143,7 @@ class PumpController {
     }
   }
 
-  stopWatering(pumpIndex, automatic = false) {
+  async stopWatering(pumpIndex, automatic = false) {
     if (!this.relays[pumpIndex]) {
       logger.error(`Реле ${pumpIndex + 1} не инициализировано`);
       return false;
@@ -166,11 +168,13 @@ class PumpController {
 
       // Сохраняем в историю
       if (this.storage) {
-        this.storage.saveHistoryEntry({
+        await this.storage.saveHistoryEntry({
           type: automatic ? 'watering_completed' : 'watering_stopped',
           zone: pumpIndex,
           timestamp: new Date()
         });
+        // Сохраняем состояние поливов
+        await this.saveWateringState();
       }
 
       return true;
@@ -185,13 +189,13 @@ class PumpController {
     }
   }
 
-  stopAllPumps() {
+  async stopAllPumps() {
     logger.info('Останавливаем все насосы...');
     let stoppedCount = 0;
 
     for (let i = 0; i < config.relays.length; i++) {
       if (this.pumpStates[i]) {
-        if (this.stopWatering(i)) {
+        if (await this.stopWatering(i)) {
           stoppedCount++;
         }
       }
@@ -217,11 +221,11 @@ class PumpController {
     };
   }
 
-  cleanup() {
+  async cleanup() {
     logger.info('Очистка ресурсов насосов...');
 
     // Останавливаем все насосы
-    this.stopAllPumps();
+    await this.stopAllPumps();
 
     // Освобождаем GPIO ресурсы
     Object.values(this.relays).forEach((relay, index) => {

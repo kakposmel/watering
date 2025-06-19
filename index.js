@@ -121,7 +121,7 @@ app.post('/api/water/:zone', async (req, res) => {
   }
 });
 
-app.post('/api/stop/:zone', (req, res) => {
+app.post('/api/stop/:zone', async (req, res) => {
   const zone = parseInt(req.params.zone);
   
   if (zone < 0 || zone >= config.relays.length) {
@@ -129,7 +129,7 @@ app.post('/api/stop/:zone', (req, res) => {
   }
   
   try {
-    const success = pumpController.stopWatering(zone);
+    const success = await pumpController.stopWatering(zone);
     res.json({ 
       success, 
       message: success ? `Полив зоны ${zone + 1} остановлен` : 'Не удалось остановить полив'
@@ -140,9 +140,9 @@ app.post('/api/stop/:zone', (req, res) => {
   }
 });
 
-app.post('/api/stop-all', (req, res) => {
+app.post('/api/stop-all', async (req, res) => {
   try {
-    pumpController.stopAllPumps();
+    await pumpController.stopAllPumps();
     res.json({ success: true, message: 'Все насосы остановлены' });
   } catch (error) {
     logger.error('Ошибка остановки всех насосов:', error);
@@ -178,21 +178,21 @@ app.get('/', (req, res) => {
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   logger.info('Получен сигнал SIGINT, завершение работы...');
   if (config.led.enabled) {
     ledController.cleanup();
   }
-  pumpController.cleanup();
+  await pumpController.cleanup();
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logger.info('Получен сигнал SIGTERM, завершение работы...');
   if (config.led.enabled) {
     ledController.cleanup();
   }
-  pumpController.cleanup();
+  await pumpController.cleanup();
   process.exit(0);
 });
 
