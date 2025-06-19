@@ -33,24 +33,40 @@ class TelegramBotController {
     // Команда для показа влажности почвы
     this.bot.onText(/\/moisture/, async (msg) => {
       const chatId = msg.chat.id;
-      
+
       try {
         const readings = await this.moistureSensor.readAllSensors();
         const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
+        // Получаем данные о поливах для всех зон одним запросом, если есть такой метод
+        let dailyCounts = [];
+        let lastWaterings = [];
+        if (this.pumpController.getDailyCounts && this.pumpController.getLastWaterings) {
+          dailyCounts = await this.pumpController.getDailyCounts();
+          lastWaterings = await this.pumpController.getLastWaterings();
+        } else {
+          // Fallback: по одной зоне
+          for (let i = 0; i < readings.length; i++) {
+            if (this.pumpController.getTodayWaterings) {
+              dailyCounts[i] = await this.pumpController.getTodayWaterings(i);
+            } else {
+              dailyCounts[i] = 0;
+            }
+            if (this.pumpController.getLastWatering) {
+              lastWaterings[i] = await this.pumpController.getLastWatering(i);
+            } else {
+              lastWaterings[i] = null;
+            }
+          }
+        }
+
         let message = '🌱 *Текущая влажность почвы:*\n\n';
-        
+
         for (let index = 0; index < readings.length; index++) {
           const reading = readings[index];
           const zoneName = settings?.zones[index]?.name || `Зона ${index + 1}`;
           const zoneEnabled = settings?.zones[index]?.enabled !== false;
           const statusEmoji = this.getStatusEmoji(reading.status);
           const statusText = this.getStatusText(reading.status);
-
-          // Получаем количество поливов за сегодня для зоны
-          let todayWaterings = 0;
-          if (this.pumpController.getTodayWaterings) {
-            todayWaterings = await this.pumpController.getTodayWaterings(index);
-          }
 
           if (!zoneEnabled) {
             message += `*${zoneName}:* ⚫ Отключена\n\n`;
@@ -61,9 +77,14 @@ class TelegramBotController {
           if (reading.rawValue !== null) {
             message += `Уровень: ${reading.moisturePercent}% (${reading.rawValue} мВ)\n`;
           }
-          message += `Поливов сегодня: ${todayWaterings}\n\n`;
+          const todayWaterings = dailyCounts[index] ?? 0;
+          const lastWatering = lastWaterings[index]
+            ? new Date(lastWaterings[index]).toLocaleString('ru-RU')
+            : 'Никогда';
+          message += `Поливов сегодня: ${todayWaterings}\n`;
+          message += `Последний полив: ${lastWatering}\n\n`;
         }
-        
+
         await this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
       } catch (error) {
         logger.error('Ошибка получения данных влажности:', error);
