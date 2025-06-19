@@ -37,27 +37,8 @@ class TelegramBotController {
       try {
         const readings = await this.moistureSensor.readAllSensors();
         const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
-        // Получаем данные о поливах для всех зон одним запросом, если есть такой метод
-        let dailyCounts = [];
-        let lastWaterings = [];
-        if (this.pumpController.getDailyCounts && this.pumpController.getLastWaterings) {
-          dailyCounts = await this.pumpController.getDailyCounts();
-          lastWaterings = await this.pumpController.getLastWaterings();
-        } else {
-          // Fallback: по одной зоне
-          for (let i = 0; i < readings.length; i++) {
-            if (this.pumpController.getTodayWaterings) {
-              dailyCounts[i] = await this.pumpController.getTodayWaterings(i);
-            } else {
-              dailyCounts[i] = 0;
-            }
-            if (this.pumpController.getLastWatering) {
-              lastWaterings[i] = await this.pumpController.getLastWatering(i);
-            } else {
-              lastWaterings[i] = null;
-            }
-          }
-        }
+        // Получаем актуальные данные о насосах, как в API
+        const pumps = this.pumpController.getPumpStates();
 
         let message = '🌱 *Текущая влажность почвы:*\n\n';
 
@@ -77,9 +58,9 @@ class TelegramBotController {
           if (reading.rawValue !== null) {
             message += `Уровень: ${reading.moisturePercent}% (${reading.rawValue} мВ)\n`;
           }
-          const todayWaterings = dailyCounts[index] ?? 0;
-          const lastWatering = lastWaterings[index]
-            ? new Date(lastWaterings[index]).toLocaleString('ru-RU')
+          const todayWaterings = pumps.dailyCount?.[index] ?? 0;
+          const lastWatering = pumps.lastWatering?.[index]
+            ? new Date(pumps.lastWatering[index]).toLocaleString('ru-RU')
             : 'Никогда';
           message += `Поливов сегодня: ${todayWaterings}\n`;
           message += `Последний полив: ${lastWatering}\n\n`;
