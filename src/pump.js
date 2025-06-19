@@ -40,6 +40,15 @@ class PumpController {
       return false;
     }
 
+    // Check if zone and pump are enabled
+    const settings = this.storage ? await this.storage.loadSettings() : null;
+    const zoneSettings = settings?.zones[pumpIndex];
+    
+    if (!zoneSettings?.enabled || !zoneSettings?.pumpEnabled) {
+      logger.info(`Насос ${pumpIndex + 1}: зона отключена`);
+      return false;
+    }
+
     const now = Date.now();
     
     // Проверка cooldown периода
@@ -62,6 +71,16 @@ class PumpController {
       this.relays[pumpIndex].writeSync(0);
       this.pumpStates[pumpIndex] = true;
       
+      // Save pump start event to history
+      if (this.storage) {
+        await this.storage.saveHistoryEntry({
+          type: 'pump_start',
+          zone: pumpIndex,
+          timestamp: new Date(),
+          duration: config.watering.duration
+        });
+      }
+      
       // Автоматическое выключение через заданное время
       setTimeout(() => {
         this.stopWatering(pumpIndex);
@@ -80,6 +99,10 @@ class PumpController {
       logger.error(`Ошибка запуска насоса ${pumpIndex + 1}:`, error);
       return false;
     }
+  }
+
+  setStorage(storage) {
+    this.storage = storage;
   }
 
   stopWatering(pumpIndex) {

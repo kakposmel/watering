@@ -5,16 +5,52 @@ const PumpController = require('./src/pump');
 const AutoWateringScheduler = require('./src/scheduler');
 const TelegramBotController = require('./src/telegram');
 const LEDController = require('./src/led');
+const Storage = require('./src/storage');
 const config = require('./src/config');
 const logger = require('./src/logger');
 
 const app = express();
 
 // Инициализация компонентов
+const storage = new Storage();
 const moistureSensor = new MoistureSensor();
 const ledController = new LEDController();
 const telegramBot = new TelegramBotController(moistureSensor, null);
 const pumpController = new PumpController(telegramBot);
+const scheduler = new AutoWateringScheduler(moistureSensor, pumpController, telegramBot, ledController);
+
+// Связываем компоненты с хранилищем
+moistureSensor.setStorage(storage);
+pumpController.setStorage(storage);
+
+// Связываем Telegram bot с pump controller
+telegramBot.pumpController = pumpController;
+
+// Инициализация системы
+async function initializeSystem() {
+  try {
+    await storage.initialize();
+    
+    if (!await moistureSensor.initialize()) {
+      logger.error('Не удалось инициализировать датчики влажности');
+    }
+    
+    if (!ledController.initialize()) {
+      logger.error('Не удалось инициализировать LED контроллер');
+    }
+    
+    if (!telegramBot.initialize()) {
+      logger.warn('Telegram bot не инициализирован');
+    }
+    
+    scheduler.start();
+    logger.info('Система автополива запущена');
+  } catch (error) {
+    logger.error('Ошибка инициализации системы:', error);
+  }
+}
+
+initializeSystem();Controller(telegramBot);
 const scheduler = new AutoWateringScheduler(moistureSensor, pumpController, telegramBot, ledController);
 
 // Связываем Telegram bot с pump controller
@@ -29,6 +65,7 @@ app.get('/api/status', async (req, res) => {
   try {
     const sensors = await moistureSensor.readAllSensors();
     const pumps = pumpController.getPumpStates();
+    const settings = await storage.loadSettings();
     
     // Обновляем LED на основе показаний датчиков
     ledController.updateFromSensorReadings(sensors);
@@ -36,10 +73,45 @@ app.get('/api/status', async (req, res) => {
     res.json({
       sensors,
       pumps,
+      settings,
       timestamp: new Date()
     });
   } catch (error) {
     logger.error('Ошибка получения статуса:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.get('/api/history', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const history = await storage.loadHistory(limit);
+    res.json(history);
+  } catch (error) {
+    logger.error('Ошибка получения истории:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.post('/api/toggle-zone/:zone', async (req, res) => {
+  const zone = parseInt(req.params.zone);
+  
+  if (zone < 0 || zone >= config.relays.length) {
+    return res.status(400).json({ error: 'Неверный номер зоны' });
+  }
+  
+  try {
+    const settings = await storage.loadSettings();
+    settings.zones[zone].enabled = !settings.zones[zone].enabled;
+    await storage.saveSettings(settings);
+    
+    res.json({ 
+      success: true, 
+      enabled: settings.zones[zone].enabled,
+      message: `Зона ${zone + 1} ${settings.zones[zone].enabled ? 'включена' : 'отключена'}`
+    });
+  } catch (error) {
+    logger.error(`Ошибка переключения зоны ${zone + 1}:`, error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
