@@ -593,8 +593,8 @@
                 // Show all watering events (including different event types)
                 const wateringEvents = history
                     .filter(entry => 
-                        entry.type === 'watering_start' || 
-                        entry.type === 'watering_stop' || 
+                        entry.type === 'watering_started' || 
+                        entry.type === 'watering_completed' || 
                         entry.type === 'watering' ||
                         entry.type === 'pump_start' ||
                         entry.type === 'pump_stop'
@@ -610,28 +610,8 @@
                     const item = document.createElement('div');
                     item.className = 'history-item watering';
                     
-                    let action, icon;
-                    
-                    switch(entry.type) {
-                        case 'watering_start':
-                        case 'pump_start':
-                            action = 'Полив начат';
-                            icon = 'play';
-                            break;
-                        case 'watering_stop':
-                        case 'pump_stop':
-                            action = 'Полив завершен';
-                            icon = 'stop';
-                            break;
-                        case 'watering':
-                            action = 'Полив выполнен';
-                            icon = 'tint';
-                            break;
-                        default:
-                            action = entry.type;
-                            icon = 'question';
-                    }
-                    
+                    const action = entry.type === 'watering_started' ? 'Полив начат' : 'Полив завершен';
+                    const icon = entry.type === 'watering_started' ? 'play' : 'stop';
                     const time = new Date(entry.timestamp).toLocaleString();
                     const zoneText = entry.zone !== undefined ? `Зона ${entry.zone + 1}` : 'Система';
                     const duration = entry.duration ? ` (${entry.duration}с)` : '';
