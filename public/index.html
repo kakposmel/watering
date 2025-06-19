@@ -393,7 +393,7 @@
         </div>
         
         <div class="chart-container">
-            <h3><i class="fas fa-chart-line"></i> История показаний датчиков (сырые данные)</h3>
+            <h3><i class="fas fa-chart-line"></i> История показаний датчиков влажности</h3>
             <canvas id="moistureChart" width="400" height="200"></canvas>
         </div>
         
@@ -590,23 +590,56 @@
                     return;
                 }
                 
-                // Show only watering events
+                // Show all watering events (including different event types)
                 const wateringEvents = history
-                    .filter(entry => entry.type === 'watering_start' || entry.type === 'watering_stop' || entry.type === 'watering')
-                    .slice(0, 20);
+                    .filter(entry => 
+                        entry.type === 'watering_start' || 
+                        entry.type === 'watering_stop' || 
+                        entry.type === 'watering' ||
+                        entry.type === 'pump_start' ||
+                        entry.type === 'pump_stop'
+                    )
+                    .slice(0, 30); // Show more events
+                
+                if (wateringEvents.length === 0) {
+                    container.innerHTML = '<div class="loading">Нет записей о поливах</div>';
+                    return;
+                }
                 
                 wateringEvents.forEach(entry => {
                     const item = document.createElement('div');
                     item.className = 'history-item watering';
                     
-                    const action = entry.type === 'watering_start' ? 'Полив начат' : 'Полив завершен';
-                    const icon = entry.type === 'watering_start' ? 'play' : 'stop';
+                    let action, icon;
+                    
+                    switch(entry.type) {
+                        case 'watering_start':
+                        case 'pump_start':
+                            action = 'Полив начат';
+                            icon = 'play';
+                            break;
+                        case 'watering_stop':
+                        case 'pump_stop':
+                            action = 'Полив завершен';
+                            icon = 'stop';
+                            break;
+                        case 'watering':
+                            action = 'Полив выполнен';
+                            icon = 'tint';
+                            break;
+                        default:
+                            action = entry.type;
+                            icon = 'question';
+                    }
+                    
                     const time = new Date(entry.timestamp).toLocaleString();
+                    const zoneText = entry.zone !== undefined ? `Зона ${entry.zone + 1}` : 'Система';
+                    const duration = entry.duration ? ` (${entry.duration}с)` : '';
                     
                     item.innerHTML = `
                         <div>
                             <i class="fas fa-${icon}"></i>
-                            ${action} - Зона ${entry.zone + 1}
+                            ${action} - ${zoneText}${duration}
                         </div>
                         <div style="font-size: 0.8em; color: #7f8c8d;">
                             ${time}
@@ -686,7 +719,8 @@
                         .slice(-50) // Last 50 readings per zone
                         .map(entry => ({
                             x: new Date(entry.timestamp),
-                            y: entry.rawValue || 0
+                            y: entry.moisturePercent || 0,
+                            rawValue: entry.rawValue || 0
                         }));
                     
                     return {
@@ -708,6 +742,10 @@
                     data: { datasets },
                     options: {
                         responsive: true,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
                         scales: {
                             x: {
                                 type: 'time',
@@ -724,10 +762,10 @@
                             },
                             y: {
                                 min: 0,
-                                max: 30000,
+                                max: 100,
                                 title: {
                                     display: true,
-                                    text: 'Напряжение (мВ)'
+                                    text: 'Влажность (%)'
                                 }
                             }
                         },
@@ -735,6 +773,14 @@
                             legend: {
                                 display: true,
                                 position: 'top'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const dataPoint = context.raw;
+                                        return `${context.dataset.label}: ${dataPoint.y}% (${dataPoint.rawValue} мВ)`;
+                                    }
+                                }
                             }
                         }
                     }
