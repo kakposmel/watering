@@ -11,6 +11,8 @@
   "description": "",
   "dependencies": {
     "ads1115": "^1.2.0",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "date-fns": "^4.1.0",
     "express": "^5.1.0",
     "gpio": "^0.2.10",
     "i2c-bus": "^5.2.3",
