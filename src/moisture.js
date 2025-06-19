@@ -31,6 +31,9 @@ class MoistureSensor {
   async readChannel(channel) {
     try {
       const mux = `${channel}+GND`;   // например, '0+GND'
+      // Dummy read to flush previous channel
+      await this.adc.measure(mux);
+      await new Promise(r => setTimeout(r, 10)); // Wait 10ms for mux to settle
       const mv = await this.adc.measure(mux);  // возвращает мВ
       // logger.debug(`Канал ${channel}: ${mv} мВ`); // убираем лишний лог
       return mv;
