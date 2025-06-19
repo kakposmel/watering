@@ -470,6 +470,7 @@
         let moistureChart;
         let lastUpdateTime = null;
         let chartScale = 'day'; // 'day' | 'week' | 'month'
+        let historyData = null;
 
         function setChartScale(scale) {
             chartScale = scale;
@@ -487,8 +488,13 @@
                 lastUpdateTime = new Date();
                 updateLastUpdateDisplay();
                 displayZones(data);
-                updateChart();
-                updateHistory();
+
+                // Fetch history ONCE and reuse
+                const historyResponse = await fetch('/api/history?limit=8640');
+                historyData = await historyResponse.json();
+
+                updateChart(historyData);
+                updateHistory(historyData);
             } catch (error) {
                 console.error('Ошибка при получении данных:', error);
                 document.getElementById('zones').innerHTML = '<div class="loading" style="color: #e74c3c;"><i class="fas fa-exclamation-triangle"></i> Не удалось загрузить данные</div>';
@@ -630,41 +636,35 @@
             return statusMap[status] || status;
         }
 
-        async function updateHistory() {
+        async function updateHistory(history) {
             try {
-                const response = await fetch('/api/history?limit=8640');
-                const history = await response.json();
-                
                 const container = document.getElementById('historyList');
                 container.innerHTML = '';
-                
+
                 if (!history || history.length === 0) {
                     container.innerHTML = '<div class="loading">История пуста</div>';
                     return;
                 }
-                
-                // Show all watering events (including different event types)
+
                 const wateringEvents = history
-                    .filter(entry => 
-                        entry.type === 'watering_started'
-                    )
-                    .slice(0, 30); // Show more events
-            
+                    .filter(entry => entry.type === 'watering_started')
+                    .slice(0, 30);
+
                 if (wateringEvents.length === 0) {
                     container.innerHTML = '<div class="loading">Нет записей о поливах</div>';
                     return;
                 }
-                
+
                 wateringEvents.forEach(entry => {
                     const item = document.createElement('div');
                     item.className = 'history-item watering';
-                    
+
                     const action = entry.type === 'watering_started' ? 'Полив начат' : 'Полив завершен';
                     const icon = entry.type === 'watering_started' ? 'play' : 'stop';
                     const time = new Date(entry.timestamp).toLocaleString();
                     const zoneText = entry.zone !== undefined ? `Зона ${entry.zone + 1}` : 'Система';
                     const duration = entry.duration ? ` (${entry.duration}с)` : '';
-                    
+
                     item.innerHTML = `
                         <div>
                             <i class="fas fa-${icon}"></i>
@@ -674,10 +674,9 @@
                             ${time}
                         </div>
                     `;
-                    
+
                     container.appendChild(item);
                 });
-                
             } catch (error) {
                 console.error('Ошибка загрузки истории:', error);
                 document.getElementById('historyList').innerHTML = '<div class="loading" style="color: #e74c3c;">Ошибка загрузки истории</div>';
@@ -784,16 +783,11 @@
             });
         }
 
-        async function updateChart() {
+        async function updateChart(history) {
             try {
-                const response = await fetch('/api/history');
-                const history = await response.json();
-                
                 if (!history || history.length === 0) return;
-                
+
                 const ctx = document.getElementById('moistureChart').getContext('2d');
-                
-                // Масштаб времени
                 const now = new Date();
                 let fromDate, timeUnit, displayFormat;
                 if (chartScale === 'hour') {
@@ -808,7 +802,7 @@
                     fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                     timeUnit = 'day';
                     displayFormat = { day: 'dd.MM' };
-                } else { // 'month'
+                } else {
                     fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
                     timeUnit = 'day';
                     displayFormat = { day: 'dd.MM' };
@@ -817,8 +811,8 @@
                 const zones = [0, 1, 2, 3];
                 const datasets = zones.map(zone => {
                     const zoneData = history
-                        .filter(entry => 
-                            entry.type === 'sensor_reading' && 
+                        .filter(entry =>
+                            entry.type === 'sensor_reading' &&
                             entry.zone === zone &&
                             new Date(entry.timestamp) >= fromDate
                         )
@@ -827,7 +821,7 @@
                             y: entry.moisturePercent || 0,
                             rawValue: entry.rawValue || 0
                         }));
-                    
+
                     return {
                         label: `Зона ${zone + 1}`,
                         data: zoneData,
@@ -837,11 +831,11 @@
                         fill: false
                     };
                 }).filter(dataset => dataset.data.length > 0);
-                
+
                 if (moistureChart) {
                     moistureChart.destroy();
                 }
-                
+
                 moistureChart = new Chart(ctx, {
                     type: 'line',
                     data: { datasets },
@@ -859,52 +853,52 @@
                                 time: {
                                     unit: timeUnit,
                                     displayFormats: displayFormat
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Время'
+                                }
                             },
-                            title: {
-                                display: true,
-                                text: 'Время'
+                            y: {
+                                min: 0,
+                                max: 100,
+                                title: {
+                                    display: true,
+                                    text: 'Влажность (%)'
+                                }
                             }
                         },
-                        y: {
-                            min: 0,
-                            max: 100,
-                            title: {
+                        plugins: {
+                            legend: {
                                 display: true,
-                                text: 'Влажность (%)'
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top'
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    const dataPoint = context.raw;
-                                    return `${context.dataset.label}: ${dataPoint.y}% (${dataPoint.rawValue} мВ)`;
+                                position: 'top'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const dataPoint = context.raw;
+                                        return `${context.dataset.label}: ${dataPoint.y}% (${dataPoint.rawValue} мВ)`;
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            });
-        } catch (error) {
-            console.error('Ошибка обновления графика:', error);
+                });
+            } catch (error) {
+                console.error('Ошибка обновления графика:', error);
+            }
         }
-    }
 
-    // Auto-highlight default scale button on load
-    window.addEventListener('DOMContentLoaded', () => {
-        setChartScale('day');
-    });
+        // Auto-highlight default scale button on load
+        window.addEventListener('DOMContentLoaded', () => {
+            setChartScale('day');
+        });
 
-    // Auto-refresh every 30 seconds
-    setInterval(updateData, 30000);
+        // Auto-refresh every 30 seconds
+        setInterval(updateData, 30000);
 
-    // Initial load
-    updateData();
+        // Initial load
+        updateData();
 </script>
 </body>
 </html>
