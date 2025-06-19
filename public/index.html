@@ -593,11 +593,7 @@
                 // Show all watering events (including different event types)
                 const wateringEvents = history
                     .filter(entry => 
-                        entry.type === 'watering_started' || 
-                        entry.type === 'watering_completed' || 
-                        entry.type === 'watering' ||
-                        entry.type === 'pump_start' ||
-                        entry.type === 'pump_stop'
+                        entry.type === 'watering_started'
                     )
                     .slice(0, 30); // Show more events
                 
@@ -689,14 +685,20 @@
                 
                 if (!history || history.length === 0) return;
                 
-                const ctx = document.getElementById('moistureChart').getContext('2d');
+             const ctx = document.getElementById('moistureChart').getContext('2d');
                 
                 // Prepare data for chart
                 const zones = [0, 1, 2, 3];
+                const now = new Date();
+                const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
                 const datasets = zones.map(zone => {
                     const zoneData = history
-                        .filter(entry => entry.type === 'sensor_reading' && entry.zone === zone)
-                        .slice(-50) // Last 50 readings per zone
+                        .filter(entry => 
+                            entry.type === 'sensor_reading' && 
+                            entry.zone === zone &&
+                            new Date(entry.timestamp) >= thirtyDaysAgo // фильтруем последние 30 дней
+                        )
                         .map(entry => ({
                             x: new Date(entry.timestamp),
                             y: entry.moisturePercent || 0,
@@ -729,10 +731,12 @@
                         scales: {
                             x: {
                                 type: 'time',
+                                min: thirtyDaysAgo, // ограничиваем ось X последними 30 днями
+                                max: now,
                                 time: {
-                                    unit: 'hour',
+                                    unit: 'day',
                                     displayFormats: {
-                                        hour: 'HH:mm'
+                                        day: 'dd.MM'
                                     }
                                 },
                                 title: {
