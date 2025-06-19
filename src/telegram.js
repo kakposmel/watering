@@ -37,15 +37,23 @@ class TelegramBotController {
       
       try {
         const readings = await this.moistureSensor.readAllSensors();
+        const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
         let message = '🌱 *Текущая влажность почвы:*\n\n';
         
         readings.forEach((reading, index) => {
+          const zoneName = settings?.zones[index]?.name || `Зона ${index + 1}`;
+          const zoneEnabled = settings?.zones[index]?.enabled !== false;
           const statusEmoji = this.getStatusEmoji(reading.status);
           const statusText = this.getStatusText(reading.status);
           
-          message += `*Зона ${index + 1}:* ${statusEmoji} ${statusText}\n`;
+          if (!zoneEnabled) {
+            message += `*${zoneName}:* ⚫ Отключена\n\n`;
+            return;
+          }
+          
+          message += `*${zoneName}:* ${statusEmoji} ${statusText}\n`;
           if (reading.rawValue !== null) {
-            message += `Значение: ${reading.rawValue} мВ (${reading.moisturePercent}%)\n`;
+            message += `Уровень: ${reading.moisturePercent}%\n`;
           }
           message += '\n';
         });
@@ -68,15 +76,47 @@ class TelegramBotController {
       }
       
       try {
+        const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
+        const zoneName = settings?.zones[zone]?.name || `Зона ${zone + 1}`;
+        
         const success = await this.pumpController.startWatering(zone);
         if (success) {
-          await this.bot.sendMessage(chatId, `💧 Полив зоны ${zone + 1} запущен`);
+          await this.bot.sendMessage(chatId, `💧 Полив "${zoneName}" запущен`);
         } else {
-          await this.bot.sendMessage(chatId, `❌ Не удалось запустить полив зоны ${zone + 1}`);
+          await this.bot.sendMessage(chatId, `❌ Не удалось запустить полив "${zoneName}"`);
         }
       } catch (error) {
         logger.error(`Ошибка запуска полива зоны ${zone + 1}:`, error);
         await this.bot.sendMessage(chatId, '❌ Ошибка при запуске полива');
+      }
+    });
+
+    // Команда для включения/выключения зоны
+    this.bot.onText(/\/toggle (\d+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      const zone = parseInt(match[1]) - 1;
+      
+      if (zone < 0 || zone >= config.relays.length) {
+        await this.bot.sendMessage(chatId, `❌ Неверный номер зоны. Доступны зоны 1-${config.relays.length}`);
+        return;
+      }
+      
+      try {
+        if (!this.moistureSensor.storage) {
+          await this.bot.sendMessage(chatId, '❌ Система хранения недоступна');
+          return;
+        }
+        
+        const settings = await this.moistureSensor.storage.loadSettings();
+        const zoneName = settings?.zones[zone]?.name || `Зона ${zone + 1}`;
+        settings.zones[zone].enabled = !settings.zones[zone].enabled;
+        await this.moistureSensor.storage.saveSettings(settings);
+        
+        const status = settings.zones[zone].enabled ? 'включена' : 'отключена';
+        await this.bot.sendMessage(chatId, `✅ "${zoneName}" ${status}`);
+      } catch (error) {
+        logger.error(`Ошибка переключения зоны ${zone + 1}:`, error);
+        await this.bot.sendMessage(chatId, '❌ Ошибка при переключении зоны');
       }
     });
 
@@ -87,51 +127,19 @@ class TelegramBotController {
 
 /moisture - Показать текущую влажность почвы
 /water <номер зоны> - Запустить полив зоны (1-${config.relays.length})
-/status - Показать статус всех зон
+/toggle <номер зоны> - Включить/выключить зону (1-${config.relays.length})
 /help - Показать это сообщение
 
 *Примеры:*
 /water 1 - полить зону 1
-/water 2 - полить зону 2`;
+/toggle 2 - включить/выключить зону 2`;
       
       await this.bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
     });
 
-    // Команда статуса
-    this.bot.onText(/\/status/, async (msg) => {
-      const chatId = msg.chat.id;
-      
-      try {
-        const readings = await this.moistureSensor.readAllSensors();
-        const pumpStates = this.pumpController.getPumpStates();
-        
-        let message = '📊 *Статус системы автополива:*\n\n';
-        
-        readings.forEach((reading, index) => {
-          const statusEmoji = this.getStatusEmoji(reading.status);
-          const statusText = this.getStatusText(reading.status);
-          const isWatering = pumpStates.states[index] ? '🔄 Полив активен' : '⭕ Полив не активен';
-          const dailyCount = pumpStates.dailyCount[index];
-          
-          message += `*Зона ${index + 1}:*\n`;
-          message += `• Влажность: ${statusEmoji} ${statusText}\n`;
-          if (reading.moisturePercent !== null) {
-            message += `• Уровень: ${reading.moisturePercent}% (${reading.rawValue} мВ)\n`;
-          }
-          message += `• Статус: ${isWatering}\n`;
-          message += `• Поливов сегодня: ${dailyCount}\n\n`;
-        });
-        
-        await this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-      } catch (error) {
-        logger.error('Ошибка получения статуса:', error);
-        await this.bot.sendMessage(chatId, '❌ Ошибка получения статуса системы');
-      }
-    });
-
     // Обработка неизвестных команд
     this.bot.on('message', async (msg) => {
-      if (msg.text && msg.text.startsWith('/') && !msg.text.match(/\/(moisture|water|help|status)/)) {
+      if (msg.text && msg.text.startsWith('/') && !msg.text.match(/\/(moisture|water|toggle|help)/)) {
         await this.bot.sendMessage(msg.chat.id, '❌ Неизвестная команда. Используйте /help для списка команд');
       }
     });
@@ -141,10 +149,12 @@ class TelegramBotController {
     if (!this.bot || !this.chatId) return;
 
     try {
+      const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
+      const zoneName = settings?.zones[zone]?.name || `Зона ${zone + 1}`;
       const actionText = action === 'started' ? 'запущен' : 'завершен';
       const emoji = action === 'started' ? '💧' : '✅';
       
-      const message = `${emoji} *Полив зоны ${zone + 1} ${actionText}*\n\nВремя: ${new Date().toLocaleString('ru-RU')}`;
+      const message = `${emoji} *Полив "${zoneName}" ${actionText}*\n\nВремя: ${new Date().toLocaleString('ru-RU')}`;
       
       await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
     } catch (error) {
@@ -156,7 +166,9 @@ class TelegramBotController {
     if (!this.bot || !this.chatId) return;
 
     try {
-      const message = `🤖 *Автоматический полив*\n\nЗона ${zone + 1} полита автоматически\nУровень влажности: ${moistureLevel}\nВремя: ${new Date().toLocaleString('ru-RU')}`;
+      const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
+      const zoneName = settings?.zones[zone]?.name || `Зона ${zone + 1}`;
+      const message = `🤖 *Автоматический полив*\n\n"${zoneName}" полита автоматически\nУровень влажности: ${moistureLevel}\nВремя: ${new Date().toLocaleString('ru-RU')}`;
       
       await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
     } catch (error) {
@@ -179,11 +191,11 @@ class TelegramBotController {
 
   getStatusText(status) {
     const statusMap = {
-      'air': 'Воздух - срочно нужен полив',
-      'dry': 'Сухо - нужен полив',
-      'moist': 'Влажно - норма',
-      'wet': 'Очень влажно',
-      'water': 'Вода - переувлажнение',
+      'air': 'Воздух - подключите датчик',
+      'dry': 'Сухо - требуется полив',
+      'moist': 'Умеренная влажность',
+      'wet': 'Хорошая влажность',
+      'water': 'Переувлажнение',
       'disabled': 'Отключено',
       'error': 'Ошибка датчика'
     };
