@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const logger = require('./logger');
+const config = require('./config'); 
 
 class Storage {
   constructor() {
