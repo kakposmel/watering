@@ -372,6 +372,11 @@
             transform: scale(1.1);
             box-shadow: 0 12px 30px rgba(0,0,0,0.3);
         }
+
+        .btn-scale {
+            float: left;
+            margin-right: 10px;
+        }
     </style>
 </head>
 <body>
@@ -394,9 +399,9 @@
         <div class="chart-container">
             <h3><i class="fas fa-chart-line"></i> История показаний датчиков влажности</h3>
             <div style="margin-bottom: 10px; text-align: right;">
-                <button class="btn btn-primary" id="scaleDayBtn" onclick="setChartScale('day')">1 день</button>
-                <button class="btn btn-primary" id="scaleWeekBtn" onclick="setChartScale('week')">Неделя</button>
-                <button class="btn btn-primary" id="scaleMonthBtn" onclick="setChartScale('month')">Месяц</button>
+                <button class="btn btn-primary btn-scale" id="scaleDayBtn" onclick="setChartScale('day')">1 день</button>
+                <button class="btn btn-primary btn-scale" id="scaleWeekBtn" onclick="setChartScale('week')">Неделя</button>
+                <button class="btn btn-primary btn-scale" id="scaleMonthBtn" onclick="setChartScale('month')">Месяц</button>
             </div>
             <canvas id="moistureChart" width="400" height="200"></canvas>
         </div>
