@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -394,6 +393,11 @@
         
         <div class="chart-container">
             <h3><i class="fas fa-chart-line"></i> История показаний датчиков влажности</h3>
+            <div style="margin-bottom: 10px; text-align: right;">
+                <button class="btn btn-primary" id="scaleDayBtn" onclick="setChartScale('day')">1 день</button>
+                <button class="btn btn-primary" id="scaleWeekBtn" onclick="setChartScale('week')">Неделя</button>
+                <button class="btn btn-primary" id="scaleMonthBtn" onclick="setChartScale('month')">Месяц</button>
+            </div>
             <canvas id="moistureChart" width="400" height="200"></canvas>
         </div>
         
@@ -428,7 +432,17 @@
     <script>
         let moistureChart;
         let lastUpdateTime = null;
-        
+        let chartScale = 'day'; // 'day' | 'week' | 'month'
+
+        function setChartScale(scale) {
+            chartScale = scale;
+            updateChart();
+            // Highlight active button
+            document.getElementById('scaleDayBtn').classList.toggle('btn-success', scale === 'day');
+            document.getElementById('scaleWeekBtn').classList.toggle('btn-success', scale === 'week');
+            document.getElementById('scaleMonthBtn').classList.toggle('btn-success', scale === 'month');
+        }
+
         async function updateData() {
             try {
                 const response = await fetch('/api/status');
@@ -596,7 +610,7 @@
                         entry.type === 'watering_started'
                     )
                     .slice(0, 30); // Show more events
-                
+            
                 if (wateringEvents.length === 0) {
                     container.innerHTML = '<div class="loading">Нет записей о поливах</div>';
                     return;
@@ -685,19 +699,32 @@
                 
                 if (!history || history.length === 0) return;
                 
-             const ctx = document.getElementById('moistureChart').getContext('2d');
+                const ctx = document.getElementById('moistureChart').getContext('2d');
                 
-                // Prepare data for chart
-                const zones = [0, 1, 2, 3];
+                // Масштаб времени
                 const now = new Date();
-                const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                let fromDate, timeUnit, displayFormat;
+                if (chartScale === 'day') {
+                    fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                    timeUnit = 'hour';
+                    displayFormat = { hour: 'HH:mm', day: 'dd.MM' };
+                } else if (chartScale === 'week') {
+                    fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    timeUnit = 'day';
+                    displayFormat = { day: 'dd.MM' };
+                } else { // 'month'
+                    fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                    timeUnit = 'day';
+                    displayFormat = { day: 'dd.MM' };
+                }
 
+                const zones = [0, 1, 2, 3];
                 const datasets = zones.map(zone => {
                     const zoneData = history
                         .filter(entry => 
                             entry.type === 'sensor_reading' && 
                             entry.zone === zone &&
-                            new Date(entry.timestamp) >= thirtyDaysAgo // фильтруем последние 30 дней
+                            new Date(entry.timestamp) >= fromDate
                         )
                         .map(entry => ({
                             x: new Date(entry.timestamp),
@@ -731,54 +758,57 @@
                         scales: {
                             x: {
                                 type: 'time',
-                                min: thirtyDaysAgo, // ограничиваем ось X последними 30 днями
+                                min: fromDate,
                                 max: now,
                                 time: {
-                                    unit: 'day',
-                                    displayFormats: {
-                                        day: 'dd.MM'
-                                    }
-                                },
-                                title: {
-                                    display: true,
-                                    text: 'Время'
-                                }
+                                    unit: timeUnit,
+                                    displayFormats: displayFormat
                             },
-                            y: {
-                                min: 0,
-                                max: 100,
-                                title: {
-                                    display: true,
-                                    text: 'Влажность (%)'
-                                }
+                            title: {
+                                display: true,
+                                text: 'Время'
                             }
                         },
-                        plugins: {
-                            legend: {
+                        y: {
+                            min: 0,
+                            max: 100,
+                            title: {
                                 display: true,
-                                position: 'top'
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        const dataPoint = context.raw;
-                                        return `${context.dataset.label}: ${dataPoint.y}% (${dataPoint.rawValue} мВ)`;
-                                    }
+                                text: 'Влажность (%)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const dataPoint = context.raw;
+                                    return `${context.dataset.label}: ${dataPoint.y}% (${dataPoint.rawValue} мВ)`;
                                 }
                             }
                         }
                     }
-                });
-            } catch (error) {
-                console.error('Ошибка обновления графика:', error);
-            }
+                }
+            });
+        } catch (error) {
+            console.error('Ошибка обновления графика:', error);
         }
+    }
 
-        // Auto-refresh every 30 seconds
-        setInterval(updateData, 30000);
+    // Auto-highlight default scale button on load
+    window.addEventListener('DOMContentLoaded', () => {
+        setChartScale('day');
+    });
 
-        // Initial load
-        updateData();
-    </script>
+    // Auto-refresh every 30 seconds
+    setInterval(updateData, 30000);
+
+    // Initial load
+    updateData();
+</script>
 </body>
 </html>
