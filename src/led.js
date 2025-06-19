@@ -17,6 +17,11 @@ class LEDController {
   }
 
   initialize() {
+    if (!config.led.enabled) {
+      logger.info('LED контроллер отключен в конфигурации');
+      return false;
+    }
+    
     try {
       // Clear LED on startup
       this.setColor(0, 0, 0);

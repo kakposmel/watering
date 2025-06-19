@@ -14,6 +14,7 @@ module.exports = {
   
   // Настройки LED индикатора (NeoPixel)
   led: {
+    enabled: false,        // Включить/выключить LED индикатор
     dataPin: 18,           // GPIO18 (PWM0) - рекомендуемый пин для NeoPixel
     brightness: 128        // Яркость 0-255 (50% для экономии энергии)
   },

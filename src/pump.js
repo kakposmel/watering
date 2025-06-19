@@ -1,3 +1,4 @@
+
 const { Gpio } = require('onoff');
 const config = require('./config');
 const logger = require('./logger');
@@ -9,6 +10,7 @@ class PumpController {
     this.pumpStates = [];
     this.lastWatering = [];
     this.dailyWateringCount = [];
+    this.storage = null;
     
     // Инициализация GPIO пинов
     config.relays.forEach((pin, index) => {
@@ -21,6 +23,7 @@ class PumpController {
         logger.info(`Реле ${index + 1} (GPIO${pin}) инициализировано`);
       } catch (error) {
         logger.error(`Ошибка инициализации GPIO${pin}:`, error);
+        this.relays[index] = null;
       }
     });
     
@@ -30,13 +33,27 @@ class PumpController {
       if (now.getHours() === 0 && now.getMinutes() === 0) {
         this.dailyWateringCount.fill(0);
         logger.info('Сброшен счетчик ежедневных поливов');
+        
+        // Уведомление в Telegram о сбросе счетчика
+        if (this.telegramBot && this.telegramBot.bot) {
+          this.telegramBot.sendSystemNotification('Счетчик ежедневных поливов сброшен');
+        }
       }
     }, 60000);
   }
 
+  setStorage(storage) {
+    this.storage = storage;
+  }
+
   async startWatering(pumpIndex) {
     if (!this.relays[pumpIndex]) {
-      logger.error(`Реле ${pumpIndex + 1} не инициализировано`);
+      const errorMsg = `Реле ${pumpIndex + 1} не инициализировано`;
+      logger.error(errorMsg);
+      
+      if (this.telegramBot && this.telegramBot.bot) {
+        this.telegramBot.sendErrorNotification('Ошибка реле', errorMsg);
+      }
       return false;
     }
 
@@ -44,106 +61,177 @@ class PumpController {
     const settings = this.storage ? await this.storage.loadSettings() : null;
     const zoneSettings = settings?.zones[pumpIndex];
     
-    if (!zoneSettings?.enabled || !zoneSettings?.pumpEnabled) {
-      logger.info(`Насос ${pumpIndex + 1}: зона отключена`);
+    if (zoneSettings && (!zoneSettings.enabled || !zoneSettings.pumpEnabled)) {
+      logger.warn(`Зона ${pumpIndex + 1} или насос отключены в настройках`);
       return false;
     }
 
-    const now = Date.now();
-    
-    // Проверка cooldown периода
-    if (now - this.lastWatering[pumpIndex] < config.watering.cooldown) {
-      const remaining = Math.round((config.watering.cooldown - (now - this.lastWatering[pumpIndex])) / 60000);
-      logger.info(`Насос ${pumpIndex + 1}: ожидание ${remaining} мин до следующего полива`);
+    // Проверяем, не активен ли уже полив
+    if (this.pumpStates[pumpIndex]) {
+      logger.warn(`Насос ${pumpIndex + 1} уже работает`);
       return false;
     }
-    
-    // Проверка лимита поливов в день
+
+    // Проверяем лимит поливов в день
     if (this.dailyWateringCount[pumpIndex] >= config.watering.maxDailyWatering) {
-      logger.warn(`Насос ${pumpIndex + 1}: достигнут дневной лимит поливов`);
+      const warningMsg = `Зона ${pumpIndex + 1}: превышен лимит поливов в день (${config.watering.maxDailyWatering})`;
+      logger.warn(warningMsg);
+      
+      if (this.telegramBot && this.telegramBot.bot) {
+        this.telegramBot.sendWarningNotification(warningMsg);
+      }
+      return false;
+    }
+
+    // Проверяем время с последнего полива
+    const now = Date.now();
+    if (now - this.lastWatering[pumpIndex] < config.watering.cooldown) {
+      const remainingTime = Math.round((config.watering.cooldown - (now - this.lastWatering[pumpIndex])) / 60000);
+      logger.warn(`Зона ${pumpIndex + 1}: слишком рано для полива. Осталось ${remainingTime} минут`);
       return false;
     }
 
     try {
-      logger.info(`Начинается полив зоны ${pumpIndex + 1}`);
-      
-      // Включаем насос (активный LOW)
-      this.relays[pumpIndex].writeSync(0);
+      // Включаем насос
+      this.relays[pumpIndex].writeSync(0); // Активный LOW
       this.pumpStates[pumpIndex] = true;
-      
-      // Save pump start event to history
-      if (this.storage) {
-        await this.storage.saveHistoryEntry({
-          type: 'pump_start',
-          zone: pumpIndex,
-          timestamp: new Date(),
-          duration: config.watering.duration
-        });
-      }
-      
-      // Автоматическое выключение через заданное время
-      setTimeout(() => {
-        this.stopWatering(pumpIndex);
-      }, config.watering.duration);
-      
       this.lastWatering[pumpIndex] = now;
       this.dailyWateringCount[pumpIndex]++;
-      
-      // Отправляем уведомление в Telegram
-      if (this.telegramBot) {
+
+      logger.info(`Насос ${pumpIndex + 1} включен на ${config.watering.duration}мс`);
+
+      // Уведомление в Telegram о начале полива
+      if (this.telegramBot && this.telegramBot.bot) {
         this.telegramBot.sendWateringNotification(pumpIndex, 'started');
       }
-      
+
+      // Сохраняем в историю
+      if (this.storage) {
+        await this.storage.saveHistoryEntry({
+          type: 'watering_started',
+          zone: pumpIndex,
+          timestamp: new Date(),
+          duration: config.watering.duration,
+          dailyCount: this.dailyWateringCount[pumpIndex]
+        });
+      }
+
+      // Автоматическое выключение через заданное время
+      setTimeout(() => {
+        this.stopWatering(pumpIndex, true);
+      }, config.watering.duration);
+
       return true;
     } catch (error) {
       logger.error(`Ошибка запуска насоса ${pumpIndex + 1}:`, error);
+      
+      if (this.telegramBot && this.telegramBot.bot) {
+        this.telegramBot.sendErrorNotification(`Ошибка насоса ${pumpIndex + 1}`, error.message);
+      }
+      
+      // Убеждаемся, что насос выключен при ошибке
+      this.pumpStates[pumpIndex] = false;
+      try {
+        this.relays[pumpIndex].writeSync(1);
+      } catch (cleanupError) {
+        logger.error(`Ошибка отключения насоса ${pumpIndex + 1} после ошибки:`, cleanupError);
+      }
+      
       return false;
     }
   }
 
-  setStorage(storage) {
-    this.storage = storage;
-  }
+  stopWatering(pumpIndex, automatic = false) {
+    if (!this.relays[pumpIndex]) {
+      logger.error(`Реле ${pumpIndex + 1} не инициализировано`);
+      return false;
+    }
 
-  stopWatering(pumpIndex) {
-    if (!this.relays[pumpIndex]) return false;
+    if (!this.pumpStates[pumpIndex]) {
+      logger.warn(`Насос ${pumpIndex + 1} уже выключен`);
+      return false;
+    }
 
     try {
-      this.relays[pumpIndex].writeSync(1); // Выключено
+      this.relays[pumpIndex].writeSync(1); // Выключаем (активный LOW)
       this.pumpStates[pumpIndex] = false;
-      logger.info(`Полив зоны ${pumpIndex + 1} завершен`);
-      
-      // Отправляем уведомление в Telegram
-      if (this.telegramBot) {
-        this.telegramBot.sendWateringNotification(pumpIndex, 'finished');
+
+      const actionType = automatic ? 'автоматически завершен' : 'принудительно остановлен';
+      logger.info(`Насос ${pumpIndex + 1} ${actionType}`);
+
+      // Уведомление в Telegram о завершении полива
+      if (this.telegramBot && this.telegramBot.bot) {
+        this.telegramBot.sendWateringNotification(pumpIndex, 'completed');
       }
-      
+
+      // Сохраняем в историю
+      if (this.storage) {
+        this.storage.saveHistoryEntry({
+          type: automatic ? 'watering_completed' : 'watering_stopped',
+          zone: pumpIndex,
+          timestamp: new Date()
+        });
+      }
+
       return true;
     } catch (error) {
       logger.error(`Ошибка остановки насоса ${pumpIndex + 1}:`, error);
+      
+      if (this.telegramBot && this.telegramBot.bot) {
+        this.telegramBot.sendErrorNotification(`Ошибка остановки насоса ${pumpIndex + 1}`, error.message);
+      }
+      
       return false;
     }
   }
 
   stopAllPumps() {
-    Object.keys(this.relays).forEach(index => {
-      this.stopWatering(parseInt(index));
-    });
+    logger.info('Останавливаем все насосы...');
+    let stoppedCount = 0;
+
+    for (let i = 0; i < config.relays.length; i++) {
+      if (this.pumpStates[i]) {
+        if (this.stopWatering(i)) {
+          stoppedCount++;
+        }
+      }
+    }
+
+    if (stoppedCount > 0) {
+      logger.info(`Остановлено насосов: ${stoppedCount}`);
+      
+      // Уведомление в Telegram об аварийной остановке
+      if (this.telegramBot && this.telegramBot.bot) {
+        this.telegramBot.sendSystemNotification(`Экстренно остановлено насосов: ${stoppedCount}`);
+      }
+    }
+
+    return stoppedCount;
   }
 
   getPumpStates() {
     return {
-      states: this.pumpStates,
-      lastWatering: this.lastWatering,
-      dailyCount: this.dailyWateringCount
+      states: [...this.pumpStates],
+      dailyCount: [...this.dailyWateringCount],
+      lastWatering: [...this.lastWatering]
     };
   }
 
   cleanup() {
+    logger.info('Очистка ресурсов насосов...');
+    
+    // Останавливаем все насосы
     this.stopAllPumps();
-    Object.values(this.relays).forEach(relay => {
+    
+    // Освобождаем GPIO ресурсы
+    Object.values(this.relays).forEach((relay, index) => {
       if (relay && relay.unexport) {
-        relay.unexport();
+        try {
+          relay.unexport();
+          logger.info(`GPIO для реле ${index + 1} освобожден`);
+        } catch (error) {
+          logger.error(`Ошибка освобождения GPIO для реле ${index + 1}:`, error);
+        }
       }
     });
   }

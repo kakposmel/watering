@@ -1,3 +1,4 @@
+
 const express = require('express');
 const path = require('path');
 const MoistureSensor = require('./src/moisture');
@@ -15,46 +16,16 @@ const app = express();
 const storage = new Storage();
 const moistureSensor = new MoistureSensor();
 const ledController = new LEDController();
-const telegramBot = new TelegramBotController(moistureSensor, null);
-const pumpController = new PumpController(telegramBot);
+const pumpController = new PumpController();
+const telegramBot = new TelegramBotController(moistureSensor, pumpController);
 const scheduler = new AutoWateringScheduler(moistureSensor, pumpController, telegramBot, ledController);
 
 // Связываем компоненты с хранилищем
 moistureSensor.setStorage(storage);
 pumpController.setStorage(storage);
 
-// Связываем Telegram bot с pump controller
-telegramBot.pumpController = pumpController;
-
-// Инициализация системы
-async function initializeSystem() {
-  try {
-    await storage.initialize();
-    
-    if (!await moistureSensor.initialize()) {
-      logger.error('Не удалось инициализировать датчики влажности');
-    }
-    
-    if (!ledController.initialize()) {
-      logger.error('Не удалось инициализировать LED контроллер');
-    }
-    
-    if (!telegramBot.initialize()) {
-      logger.warn('Telegram bot не инициализирован');
-    }
-    
-    scheduler.start();
-    logger.info('Система автополива запущена');
-  } catch (error) {
-    logger.error('Ошибка инициализации системы:', error);
-  }
-}
-
-initializeSystem();Controller(telegramBot);
-const scheduler = new AutoWateringScheduler(moistureSensor, pumpController, telegramBot, ledController);
-
-// Связываем Telegram bot с pump controller
-telegramBot.pumpController = pumpController;
+// Связываем telegram bot с датчиками для уведомлений об ошибках
+moistureSensor.setTelegramBot(telegramBot);
 
 // Middleware
 app.use(express.json());
@@ -68,7 +39,9 @@ app.get('/api/status', async (req, res) => {
     const settings = await storage.loadSettings();
     
     // Обновляем LED на основе показаний датчиков
-    ledController.updateFromSensorReadings(sensors);
+    if (config.led.enabled) {
+      ledController.updateFromSensorReadings(sensors);
+    }
     
     res.json({
       sensors,
@@ -78,6 +51,12 @@ app.get('/api/status', async (req, res) => {
     });
   } catch (error) {
     logger.error('Ошибка получения статуса:', error);
+    
+    // Отправляем критическую ошибку в Telegram
+    if (telegramBot.bot) {
+      telegramBot.sendErrorNotification('Ошибка получения статуса системы', error.message);
+    }
+    
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -104,6 +83,13 @@ app.post('/api/toggle-zone/:zone', async (req, res) => {
     const settings = await storage.loadSettings();
     settings.zones[zone].enabled = !settings.zones[zone].enabled;
     await storage.saveSettings(settings);
+    
+    // Уведомление в Telegram о переключении зоны
+    if (telegramBot.bot) {
+      telegramBot.sendSystemNotification(
+        `Зона ${zone + 1} ${settings.zones[zone].enabled ? 'включена' : 'отключена'}`
+      );
+    }
     
     res.json({ 
       success: true, 
@@ -167,10 +153,18 @@ app.post('/api/stop-all', (req, res) => {
 app.post('/api/test-all', async (req, res) => {
   try {
     for (let i = 0; i < config.relays.length; i++) {
-      pumpController.relays[i].writeSync(0); // Включить
-      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 секунды
-      pumpController.relays[i].writeSync(1); // Выключить
+      if (pumpController.relays[i]) {
+        pumpController.relays[i].writeSync(0); // Включить
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 секунды
+        pumpController.relays[i].writeSync(1); // Выключить
+      }
     }
+    
+    // Уведомление в Telegram о тестовом поливе
+    if (telegramBot.bot) {
+      telegramBot.sendSystemNotification('Тестовый полив всех зон завершен');
+    }
+    
     res.json({ success: true, message: 'Тестовый полив завершен' });
   } catch (error) {
     logger.error('Ошибка тестового полива:', error);
@@ -186,63 +180,97 @@ app.get('/', (req, res) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   logger.info('Получен сигнал SIGINT, завершение работы...');
-  ledController.cleanup();
+  if (config.led.enabled) {
+    ledController.cleanup();
+  }
   pumpController.cleanup();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   logger.info('Получен сигнал SIGTERM, завершение работы...');
-  ledController.cleanup();
+  if (config.led.enabled) {
+    ledController.cleanup();
+  }
   pumpController.cleanup();
   process.exit(0);
 });
 
-// Запуск сервера
-async function startServer() {
+// Инициализация системы
+async function initializeSystem() {
   try {
+    logger.info('Инициализация системы автополива...');
+    
     // Создание папки для логов
     const fs = require('fs');
     if (!fs.existsSync(path.join(__dirname, 'logs'))) {
       fs.mkdirSync(path.join(__dirname, 'logs'));
     }
     
-    // Инициализация датчиков
+    // Инициализация хранилища
+    await storage.initialize();
+    logger.info('Хранилище инициализировано');
+    
+    // Инициализация датчиков влажности
     const sensorInit = await moistureSensor.initialize();
     if (!sensorInit) {
-      logger.error('Не удалось инициализировать датчики');
+      const errorMsg = 'Критическая ошибка: не удалось инициализировать датчики влажности';
+      logger.error(errorMsg);
+      
+      // Отправляем критическую ошибку в Telegram перед выходом
+      if (telegramBot.initialize()) {
+        await telegramBot.sendErrorNotification('Критическая ошибка системы', errorMsg);
+      }
       process.exit(1);
     }
+    logger.info('Датчики влажности инициализированы');
     
-    // Инициализация LED индикатора
-    const ledInit = ledController.initialize();
-    if (ledInit) {
-      logger.info('LED индикатор подключен');
+    // Инициализация LED индикатора (опционально)
+    if (config.led.enabled) {
+      const ledInit = ledController.initialize();
+      if (ledInit) {
+        logger.info('LED индикатор подключен');
+      } else {
+        logger.warn('LED индикатор не удалось инициализировать');
+      }
     } else {
-      logger.warn('LED индикатор не настроен - продолжаем без него');
+      logger.info('LED индикатор отключен в конфигурации');
     }
     
     // Инициализация Telegram bot
     const telegramInit = telegramBot.initialize();
     if (telegramInit) {
       logger.info('Telegram bot подключен');
+      // Отправляем уведомление о запуске системы
+      await telegramBot.sendSystemNotification('🌿 Система автополива запущена и готова к работе');
     } else {
       logger.warn('Telegram bot не настроен - продолжаем без него');
     }
     
     // Запуск планировщика
     scheduler.start();
+    logger.info('Планировщик автополива запущен');
     
     // Запуск веб-сервера
-    app.listen(config.server.port, () => {
+    app.listen(config.server.port, '0.0.0.0', () => {
       logger.info(`🌿 Сервер автополива запущен на порту ${config.server.port}`);
       logger.info(`📱 Веб-интерфейс: http://localhost:${config.server.port}`);
     });
     
   } catch (error) {
-    logger.error('Ошибка запуска сервера:', error);
+    logger.error('Критическая ошибка запуска системы:', error);
+    
+    // Попытка отправить критическую ошибку в Telegram
+    try {
+      if (telegramBot.initialize()) {
+        await telegramBot.sendErrorNotification('Критическая ошибка запуска', error.message);
+      }
+    } catch (telegramError) {
+      logger.error('Не удалось отправить ошибку в Telegram:', telegramError);
+    }
+    
     process.exit(1);
   }
 }
 
-startServer();
+initializeSystem();

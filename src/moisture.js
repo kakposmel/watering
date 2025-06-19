@@ -18,6 +18,11 @@ class MoistureSensor {
       return true;
     } catch (err) {
       logger.error('Ошибка инициализации ADS1115:', err);
+      
+      // Отправляем критическую ошибку в Telegram если есть ссылка
+      if (this.telegramBot && this.telegramBot.bot) {
+        this.telegramBot.sendErrorNotification('Ошибка инициализации датчиков', err.message);
+      }
       return false;
     }
   }
@@ -109,6 +114,10 @@ class MoistureSensor {
 
   setStorage(storage) {
     this.storage = storage;
+  }
+
+  setTelegramBot(telegramBot) {
+    this.telegramBot = telegramBot;
   }
 
   async getValidReading(channel, maxAttempts = 5) {

@@ -40,12 +40,12 @@ class TelegramBotController {
         let message = '🌱 *Текущая влажность почвы:*\n\n';
         
         readings.forEach((reading, index) => {
-          const statusEmoji = this.getStatusEmoji(reading.moistureStatus);
-          const statusText = this.getStatusText(reading.moistureStatus);
+          const statusEmoji = this.getStatusEmoji(reading.status);
+          const statusText = this.getStatusText(reading.status);
           
           message += `*Зона ${index + 1}:* ${statusEmoji} ${statusText}\n`;
           if (reading.rawValue !== null) {
-            message += `Значение: ${reading.rawValue}\n`;
+            message += `Значение: ${reading.rawValue} мВ (${reading.moisturePercent}%)\n`;
           }
           message += '\n';
         });
@@ -108,13 +108,16 @@ class TelegramBotController {
         let message = '📊 *Статус системы автополива:*\n\n';
         
         readings.forEach((reading, index) => {
-          const statusEmoji = this.getStatusEmoji(reading.moistureStatus);
-          const statusText = this.getStatusText(reading.moistureStatus);
+          const statusEmoji = this.getStatusEmoji(reading.status);
+          const statusText = this.getStatusText(reading.status);
           const isWatering = pumpStates.states[index] ? '🔄 Полив активен' : '⭕ Полив не активен';
           const dailyCount = pumpStates.dailyCount[index];
           
           message += `*Зона ${index + 1}:*\n`;
           message += `• Влажность: ${statusEmoji} ${statusText}\n`;
+          if (reading.moisturePercent !== null) {
+            message += `• Уровень: ${reading.moisturePercent}% (${reading.rawValue} мВ)\n`;
+          }
           message += `• Статус: ${isWatering}\n`;
           message += `• Поливов сегодня: ${dailyCount}\n\n`;
         });
@@ -163,10 +166,12 @@ class TelegramBotController {
 
   getStatusEmoji(status) {
     const emojiMap = {
+      'air': '🏜️',
       'dry': '🏜️',
-      'needs_water': '🌱',
-      'optimal': '✅',
-      'too_wet': '💦',
+      'moist': '🌱',
+      'wet': '💧',
+      'water': '💦',
+      'disabled': '⚫',
       'error': '❌'
     };
     return emojiMap[status] || '❓';
@@ -174,13 +179,46 @@ class TelegramBotController {
 
   getStatusText(status) {
     const statusMap = {
+      'air': 'Воздух - срочно нужен полив',
       'dry': 'Сухо - нужен полив',
-      'needs_water': 'Нужна вода',
-      'optimal': 'Оптимально',
-      'too_wet': 'Слишком влажно',
+      'moist': 'Влажно - норма',
+      'wet': 'Очень влажно',
+      'water': 'Вода - переувлажнение',
+      'disabled': 'Отключено',
       'error': 'Ошибка датчика'
     };
     return statusMap[status] || status;
+  }
+
+  async sendSystemNotification(message) {
+    if (!this.bot || !this.chatId) return;
+
+    try {
+      await this.bot.sendMessage(this.chatId, `🔧 *Система:* ${message}`, { parse_mode: 'Markdown' });
+    } catch (error) {
+      logger.error('Ошибка отправки системного уведомления:', error);
+    }
+  }
+
+  async sendWarningNotification(message) {
+    if (!this.bot || !this.chatId) return;
+
+    try {
+      await this.bot.sendMessage(this.chatId, `⚠️ *Предупреждение:* ${message}`, { parse_mode: 'Markdown' });
+    } catch (error) {
+      logger.error('Ошибка отправки предупреждения:', error);
+    }
+  }
+
+  async sendErrorNotification(title, details) {
+    if (!this.bot || !this.chatId) return;
+
+    try {
+      const message = `❌ *Ошибка:* ${title}\n\nДетали: ${details}\nВремя: ${new Date().toLocaleString('ru-RU')}`;
+      await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+    } catch (error) {
+      logger.error('Ошибка отправки уведомления об ошибке:', error);
+    }
   }
 }
 

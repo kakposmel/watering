@@ -48,9 +48,18 @@ class AutoWateringScheduler {
             if (this.telegramBot) {
               this.telegramBot.sendAutomaticWateringNotification(i, reading.status);
             }
+          } else {
+            logger.warn(`Не удалось запустить автополив зоны ${i + 1}`);
+            if (this.telegramBot) {
+              this.telegramBot.sendWarningNotification(`Не удалось запустить автополив зоны ${i + 1}. Проверьте систему.`);
+            }
           }
-        } else if (reading.status === 'too_wet') {
-          logger.warn(`Зона ${i + 1}: слишком влажно! Проверьте дренаж.`);
+        } else if (reading.status === 'water') {
+          const warningMsg = `Зона ${i + 1}: переувлажнение! Проверьте дренаж и отключите полив.`;
+          logger.warn(warningMsg);
+          if (this.telegramBot) {
+            this.telegramBot.sendWarningNotification(warningMsg);
+          }
         }
       }
       
