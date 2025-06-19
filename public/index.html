@@ -393,7 +393,7 @@
         </div>
         
         <div class="chart-container">
-            <h3><i class="fas fa-chart-line"></i> История влажности</h3>
+            <h3><i class="fas fa-chart-line"></i> История показаний датчиков (сырые данные)</h3>
             <canvas id="moistureChart" width="400" height="200"></canvas>
         </div>
         
@@ -508,6 +508,7 @@
                             <div class="info-value">
                                 <i class="fas fa-${sensorEnabled ? 'check-circle' : 'times-circle'}"></i>
                                 ${sensorEnabled ? 'Вкл' : 'Выкл'}
+                                <div style="font-size: 0.7em; color: #95a5a6; margin-top: 2px;">${rawValue} мВ</div>
                             </div>
                         </div>
                         <div class="info-item">
@@ -591,7 +592,7 @@
                 
                 // Show only watering events
                 const wateringEvents = history
-                    .filter(entry => entry.type === 'watering_start' || entry.type === 'watering_stop')
+                    .filter(entry => entry.type === 'watering_start' || entry.type === 'watering_stop' || entry.type === 'watering')
                     .slice(0, 20);
                 
                 wateringEvents.forEach(entry => {
@@ -682,10 +683,10 @@
                 const datasets = zones.map(zone => {
                     const zoneData = history
                         .filter(entry => entry.type === 'sensor_reading' && entry.zone === zone)
-                        .slice(-20) // Last 20 readings per zone
+                        .slice(-50) // Last 50 readings per zone
                         .map(entry => ({
                             x: new Date(entry.timestamp),
-                            y: entry.moisturePercent
+                            y: entry.rawValue || 0
                         }));
                     
                     return {
@@ -723,10 +724,10 @@
                             },
                             y: {
                                 min: 0,
-                                max: 100,
+                                max: 30000,
                                 title: {
                                     display: true,
-                                    text: 'Влажность (%)'
+                                    text: 'Напряжение (мВ)'
                                 }
                             }
                         },

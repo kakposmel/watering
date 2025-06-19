@@ -1,4 +1,3 @@
-
 const { Gpio } = require('onoff');
 const config = require('./config');
 const logger = require('./logger');
@@ -11,7 +10,8 @@ class PumpController {
     this.lastWatering = [];
     this.dailyWateringCount = [];
     this.storage = null;
-    
+    this.lastResetDate = new Date().toDateString();
+
     // Инициализация GPIO пинов
     config.relays.forEach((pin, index) => {
       try {
@@ -26,14 +26,14 @@ class PumpController {
         this.relays[index] = null;
       }
     });
-    
+
     // Сброс счетчика поливов каждый день в полночь
     setInterval(() => {
       const now = new Date();
       if (now.getHours() === 0 && now.getMinutes() === 0) {
         this.dailyWateringCount.fill(0);
         logger.info('Сброшен счетчик ежедневных поливов');
-        
+
         // Уведомление в Telegram о сбросе счетчика
         if (this.telegramBot && this.telegramBot.bot) {
           this.telegramBot.sendSystemNotification('Счетчик ежедневных поливов сброшен');
@@ -50,7 +50,7 @@ class PumpController {
     if (!this.relays[pumpIndex]) {
       const errorMsg = `Реле ${pumpIndex + 1} не инициализировано`;
       logger.error(errorMsg);
-      
+
       if (this.telegramBot && this.telegramBot.bot) {
         this.telegramBot.sendErrorNotification('Ошибка реле', errorMsg);
       }
@@ -60,7 +60,7 @@ class PumpController {
     // Check if zone and pump are enabled
     const settings = this.storage ? await this.storage.loadSettings() : null;
     const zoneSettings = settings?.zones[pumpIndex];
-    
+
     if (zoneSettings && (!zoneSettings.enabled || !zoneSettings.pumpEnabled)) {
       logger.warn(`Зона ${pumpIndex + 1} или насос отключены в настройках`);
       return false;
@@ -76,7 +76,7 @@ class PumpController {
     if (this.dailyWateringCount[pumpIndex] >= config.watering.maxDailyWatering) {
       const warningMsg = `Зона ${pumpIndex + 1}: превышен лимит поливов в день (${config.watering.maxDailyWatering})`;
       logger.warn(warningMsg);
-      
+
       if (this.telegramBot && this.telegramBot.bot) {
         this.telegramBot.sendWarningNotification(warningMsg);
       }
@@ -124,11 +124,11 @@ class PumpController {
       return true;
     } catch (error) {
       logger.error(`Ошибка запуска насоса ${pumpIndex + 1}:`, error);
-      
+
       if (this.telegramBot && this.telegramBot.bot) {
         this.telegramBot.sendErrorNotification(`Ошибка насоса ${pumpIndex + 1}`, error.message);
       }
-      
+
       // Убеждаемся, что насос выключен при ошибке
       this.pumpStates[pumpIndex] = false;
       try {
@@ -136,7 +136,7 @@ class PumpController {
       } catch (cleanupError) {
         logger.error(`Ошибка отключения насоса ${pumpIndex + 1} после ошибки:`, cleanupError);
       }
-      
+
       return false;
     }
   }
@@ -176,11 +176,11 @@ class PumpController {
       return true;
     } catch (error) {
       logger.error(`Ошибка остановки насоса ${pumpIndex + 1}:`, error);
-      
+
       if (this.telegramBot && this.telegramBot.bot) {
         this.telegramBot.sendErrorNotification(`Ошибка остановки насоса ${pumpIndex + 1}`, error.message);
       }
-      
+
       return false;
     }
   }
@@ -199,7 +199,7 @@ class PumpController {
 
     if (stoppedCount > 0) {
       logger.info(`Остановлено насосов: ${stoppedCount}`);
-      
+
       // Уведомление в Telegram об аварийной остановке
       if (this.telegramBot && this.telegramBot.bot) {
         this.telegramBot.sendSystemNotification(`Экстренно остановлено насосов: ${stoppedCount}`);
@@ -219,10 +219,10 @@ class PumpController {
 
   cleanup() {
     logger.info('Очистка ресурсов насосов...');
-    
+
     // Останавливаем все насосы
     this.stopAllPumps();
-    
+
     // Освобождаем GPIO ресурсы
     Object.values(this.relays).forEach((relay, index) => {
       if (relay && relay.unexport) {
@@ -234,6 +234,87 @@ class PumpController {
         }
       }
     });
+  }
+
+  async initialize() {
+    try {
+      for (let i = 0; i < config.relays.length; i++) {
+        const pin = config.relays[i];
+        this.relays[i] = new Gpio(pin, 'out');
+        this.relays[i].writeSync(1); // Выключено (активный LOW)
+        logger.info(`Реле ${i + 1} инициализировано на GPIO${pin}`);
+      }
+
+      // Load persistent watering state
+      await this.loadWateringState();
+      this.startDailyReset();
+      return true;
+    } catch (error) {
+      logger.error('Ошибка инициализации реле:', error);
+      return false;
+    }
+  }
+
+  setTelegramBot(telegramBot) {
+    this.telegramBot = telegramBot;
+  }
+
+  async loadWateringState() {
+    if (!this.storage) return;
+
+    try {
+      const state = await this.storage.loadWateringState();
+      if (state) {
+        // Check if it's a new day
+        const today = new Date().toDateString();
+        if (state.lastResetDate === today) {
+          this.lastWatering = state.lastWatering || Array(config.relays.length).fill(0);
+          this.dailyWateringCount = state.dailyWateringCount || Array(config.relays.length).fill(0);
+        } else {
+          // New day, reset daily counts
+          this.dailyWateringCount = Array(config.relays.length).fill(0);
+          this.lastWatering = state.lastWatering || Array(config.relays.length).fill(0);
+        }
+        this.lastResetDate = today;
+        await this.saveWateringState();
+        logger.info('Состояние поливов загружено из хранилища');
+      }
+    } catch (error) {
+      logger.error('Ошибка загрузки состояния поливов:', error);
+    }
+  }
+
+  async saveWateringState() {
+    if (!this.storage) return;
+
+    try {
+      const state = {
+        lastWatering: this.lastWatering,
+        dailyWateringCount: this.dailyWateringCount,
+        lastResetDate: this.lastResetDate
+      };
+      await this.storage.saveWateringState(state);
+    } catch (error) {
+      logger.error('Ошибка сохранения состояния поливов:', error);
+    }
+  }
+
+  startDailyReset() {
+    setInterval(async () => {
+      const now = new Date();
+      const currentDate = now.toDateString();
+
+      if (currentDate !== this.lastResetDate) {
+        this.dailyWateringCount.fill(0);
+        this.lastResetDate = currentDate;
+        await this.saveWateringState();
+        logger.info('Счетчик ежедневных поливов сброшен');
+
+        if (this.telegramBot && this.telegramBot.bot) {
+          this.telegramBot.sendSystemNotification('Счетчик ежедневных поливов сброшен');
+        }
+      }
+    }, 60000);
   }
 }
 

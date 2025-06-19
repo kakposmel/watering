@@ -111,13 +111,56 @@ class Storage {
       try {
         const data = await fs.readFile(historyPath, 'utf8');
         const history = JSON.parse(data);
-        return history.slice(-limit).reverse(); // Последние записи сначала
+        
+        // Filter entries older than 30 days
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        const filteredHistory = history.filter(entry => 
+          new Date(entry.timestamp) > thirtyDaysAgo
+        );
+        
+        // Save filtered history back to file if we removed old entries
+        if (filteredHistory.length !== history.length) {
+          await fs.writeFile(historyPath, JSON.stringify(filteredHistory, null, 2));
+        }
+        
+        return filteredHistory.slice(-limit).reverse(); // Последние записи сначала
       } catch (fileError) {
         return []; // Файл не существует
       }
     } catch (error) {
       logger.error('Ошибка загрузки истории:', error);
       return [];
+    }
+  }
+
+  async saveWateringState(state) {
+    try {
+      const fs = require('fs').promises;
+      const statePath = path.join(this.dataDir, 'watering_state.json');
+      await fs.writeFile(statePath, JSON.stringify(state, null, 2));
+      logger.debug('Состояние поливов сохранено');
+    } catch (error) {
+      logger.error('Ошибка сохранения состояния поливов:', error);
+      throw error;
+    }
+  }
+
+  async loadWateringState() {
+    try {
+      const fs = require('fs').promises;
+      const statePath = path.join(this.dataDir, 'watering_state.json');
+
+      try {
+        const data = await fs.readFile(statePath, 'utf8');
+        return JSON.parse(data);
+      } catch (fileError) {
+        return null; // Файл не существует
+      }
+    } catch (error) {
+      logger.error('Ошибка загрузки состояния поливов:', error);
+      return null;
     }
   }
 }

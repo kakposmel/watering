@@ -225,6 +225,14 @@ async function initializeSystem() {
     }
     logger.info('Датчики влажности инициализированы');
     
+    // Инициализация контроллера насосов
+    const pumpInit = await pumpController.initialize();
+    if (!pumpInit) {
+      logger.error('Ошибка инициализации насосов');
+    } else {
+      logger.info('Контроллер насосов инициализирован');
+    }
+    
     // Инициализация LED индикатора (опционально)
     if (config.led.enabled) {
       const ledInit = ledController.initialize();
