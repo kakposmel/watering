@@ -1,4 +1,3 @@
-
 const TelegramBot = require('node-telegram-bot-api');
 const config = require('./config');
 const logger = require('./logger');
@@ -40,23 +39,30 @@ class TelegramBotController {
         const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
         let message = '🌱 *Текущая влажность почвы:*\n\n';
         
-        readings.forEach((reading, index) => {
+        for (let index = 0; index < readings.length; index++) {
+          const reading = readings[index];
           const zoneName = settings?.zones[index]?.name || `Зона ${index + 1}`;
           const zoneEnabled = settings?.zones[index]?.enabled !== false;
           const statusEmoji = this.getStatusEmoji(reading.status);
           const statusText = this.getStatusText(reading.status);
-          
+
+          // Получаем количество поливов за сегодня для зоны
+          let todayWaterings = 0;
+          if (this.pumpController.getTodayWaterings) {
+            todayWaterings = await this.pumpController.getTodayWaterings(index);
+          }
+
           if (!zoneEnabled) {
             message += `*${zoneName}:* ⚫ Отключена\n\n`;
-            return;
+            continue;
           }
-          
+
           message += `*${zoneName}:* ${statusEmoji} ${statusText}\n`;
           if (reading.rawValue !== null) {
-            message += `Уровень: ${reading.moisturePercent}%\n`;
+            message += `Уровень: ${reading.moisturePercent}% (${reading.rawValue} мВ)\n`;
           }
-          message += '\n';
-        });
+          message += `Поливов сегодня: ${todayWaterings}\n\n`;
+        }
         
         await this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
       } catch (error) {
