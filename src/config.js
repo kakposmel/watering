@@ -38,7 +38,7 @@ module.exports = {
   },
   
   // Расписание проверок
-  schedule: '*/5 * * * *', // Каждые 5 минут
+  schedule: '*/15 * * * *', // Каждые 15 минут
   
   // Telegram bot настройки
   telegram: {
