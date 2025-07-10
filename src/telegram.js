@@ -42,7 +42,7 @@ class TelegramBotController {
 
         for (let index = 0; index < config.relays.length; index++) {
           const zoneSettings = settings?.zones[index];
-          const zoneName = zoneSettings?.name || `Зона ${index + 1}`;
+const zoneName = this.escapeMarkdown(zoneSettings?.name || `Зона ${index + 1}`);
           const enabled = zoneSettings?.enabled && zoneSettings?.scheduleEnabled;
           const schedule = zoneSettings?.schedule || 'не установлено';
           const duration = zoneSettings?.waterDuration || 15;
@@ -80,7 +80,7 @@ class TelegramBotController {
 
         for (let index = 0; index < config.relays.length; index++) {
           const zoneSettings = settings?.zones[index];
-          const zoneName = zoneSettings?.name || `Зона ${index + 1}`;
+const zoneName = this.escapeMarkdown(settings?.zones[index]?.name || `Зона ${index + 1}`);
           const enabled = zoneSettings?.enabled;
           const scheduleEnabled = zoneSettings?.scheduleEnabled;
           const isActive = pumps.states?.[index] || false;
@@ -164,7 +164,7 @@ class TelegramBotController {
         
         await this.moistureSensor.storage.saveSettings(settings);
         
-        await this.bot.sendMessage(chatId, `✅ Расписание для "${zoneName}" обновлено:\nРасписание: ${schedule}\nДлительность: ${duration} сек`);
+await this.bot.sendMessage(chatId, `✅ Расписание для "${this.escapeMarkdown(zoneName)}" обновлено:\nРасписание: ${schedule}\nДлительность: ${duration} сек`);
         
         // Note: Schedule controller restart will be handled by the main app
       } catch (error) {
@@ -189,9 +189,9 @@ class TelegramBotController {
         
         const success = await this.pumpController.startWatering(zone);
         if (success) {
-          await this.bot.sendMessage(chatId, `💧 Полив "${zoneName}" запущен`);
+await this.bot.sendMessage(chatId, `💧 Полив "${this.escapeMarkdown(zoneName)}" запущен`);
         } else {
-          await this.bot.sendMessage(chatId, `❌ Не удалось запустить полив "${zoneName}"`);
+await this.bot.sendMessage(chatId, `❌ Не удалось запустить полив "${this.escapeMarkdown(zoneName)}"`);
         }
       } catch (error) {
         logger.error(`Ошибка запуска полива зоны ${zone + 1}:`, error);
@@ -285,12 +285,18 @@ class TelegramBotController {
     try {
       const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
       const zoneName = settings?.zones[zone]?.name || `Зона ${zone + 1}`;
-      const message = `📅 *Запланированный полив*\n\n"${zoneName}" поливается по расписанию\nДлительность: ${duration} сек\nВремя: ${new Date().toLocaleString('ru-RU')}`;
+      const safeZoneName = this.escapeMarkdown(zoneName);
+      const message = `📅 *Запланированный полив*\n\n"${safeZoneName}" поливается по расписанию\nДлительность: ${duration} сек\nВремя: ${new Date().toLocaleString('ru-RU')}`;
       
       await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
     } catch (error) {
       logger.error('Ошибка отправки уведомления о запланированном поливе:', error);
     }
+  }
+
+  escapeMarkdown(text) {
+    // Escape special Markdown characters that can cause parsing errors
+    return text.replace(/[_*\[\]()~`>#+=|{}.!-]/g, '\\$&');
   }
 
   getStatusEmoji(status) {

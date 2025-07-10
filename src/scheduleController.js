@@ -211,6 +211,44 @@ class ScheduleController {
       const now = new Date();
       const next = new Date(now);
       
+      // Handle recurring day patterns like "*/3" (every 3 days)
+      if (day.includes('*/') && month === '*' && dayOfWeek === '*') {
+        const targetHour = parseInt(hour);
+        const targetMinute = parseInt(minute);
+        
+        if (isNaN(targetHour) || isNaN(targetMinute)) return null;
+        
+        const dayInterval = parseInt(day.split('*/')[1]);
+        if (isNaN(dayInterval) || dayInterval < 1) return null;
+        
+        // Calculate next execution based on day interval
+        next.setHours(targetHour, targetMinute, 0, 0);
+        
+        // If time hasn't passed today, check if today matches the interval
+        if (next > now) {
+          const dayOfMonth = now.getDate();
+          if ((dayOfMonth - 1) % dayInterval === 0) {
+            return next; // Today is a valid day and time hasn't passed
+          }
+        }
+        
+        // Find next valid day
+        let daysToAdd = 1;
+        while (daysToAdd <= dayInterval * 2) { // Check up to 2 intervals ahead
+          const testDate = new Date(now);
+          testDate.setDate(testDate.getDate() + daysToAdd);
+          const testDay = testDate.getDate();
+          
+          if ((testDay - 1) % dayInterval === 0) {
+            next.setDate(next.getDate() + daysToAdd);
+            return next;
+          }
+          daysToAdd++;
+        }
+        
+        return null;
+      }
+      
       // Handle simple daily schedules (most common case)
       if (day === '*' && month === '*' && dayOfWeek === '*') {
         const targetHour = parseInt(hour);
