@@ -280,6 +280,25 @@ app.post('/api/toggle-schedule/:zone', async (req, res) => {
   }
 });
 
+app.post('/api/reset-schedules', async (req, res) => {
+  try {
+    await scheduleController.resetToDefaultSchedules();
+    
+    // Notify Telegram
+    if (telegramBot.bot) {
+      telegramBot.sendSystemNotification('Все расписания сброшены к настройкам по умолчанию');
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Все расписания сброшены к настройкам по умолчанию' 
+    });
+  } catch (error) {
+    logger.error('Ошибка сброса расписаний:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 app.post('/api/test-all', async (req, res) => {
   try {
     for (let i = 0; i < config.relays.length; i++) {

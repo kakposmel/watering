@@ -58,9 +58,18 @@ class ScheduleController {
     await this.stopZoneSchedule(zoneIndex);
     
     try {
-      // Validate cron schedule
+      // Validate cron schedule with both libraries
       if (!cron.validate(cronSchedule)) {
-        logger.error(`Invalid cron schedule for zone ${zoneIndex + 1}: ${cronSchedule}`);
+        logger.error(`Invalid cron schedule (node-cron) for zone ${zoneIndex + 1}: ${cronSchedule}`);
+        return false;
+      }
+      
+      // Also validate with cron-parser to ensure compatibility
+      try {
+        const parser = require('cron-parser');
+        parser.parseExpression(cronSchedule);
+      } catch (parseError) {
+        logger.error(`Invalid cron schedule (cron-parser) for zone ${zoneIndex + 1}: ${cronSchedule}`, parseError);
         return false;
       }
 
@@ -192,11 +201,11 @@ class ScheduleController {
         return null;
       }
 
-      const cronParser = require('cron-parser');
+      const parser = require('cron-parser');
       const schedule = zoneSettings.schedule;
       
       try {
-        const interval = cronParser.parseExpression(schedule);
+        const interval = parser.parseExpression(schedule);
         return interval.next().toDate();
       } catch (parseError) {
         logger.error(`Invalid cron expression for zone ${zoneIndex + 1}: ${schedule}`, parseError);
@@ -216,11 +225,16 @@ class ScheduleController {
       const job = this.scheduledJobs.get(i);
       const nextTime = await this.getNextWateringTime(i);
       
+      // Get schedule from settings if job doesn't exist
+      const settings = this.storage ? await this.storage.loadSettings() : null;
+      const zoneSettings = settings?.zones[i];
+      const cronPattern = job ? (job.options?.cronExpression || zoneSettings?.schedule) : zoneSettings?.schedule;
+      
       scheduleInfo.push({
         zone: i,
         active: !!job,
         nextWatering: nextTime,
-        cronPattern: job ? job.options.cronExpression : null
+        cronPattern: cronPattern || null
       });
     }
     
@@ -237,6 +251,25 @@ class ScheduleController {
     
     // Reload and start schedules
     await this.loadAndStartSchedules();
+  }
+
+  async resetToDefaultSchedules() {
+    logger.info('Resetting all schedules to defaults...');
+    
+    // Stop all existing schedules
+    for (const [zoneIndex] of this.scheduledJobs) {
+      await this.stopZoneSchedule(zoneIndex);
+    }
+    
+    // Reset to default schedules
+    for (let i = 0; i < config.relays.length; i++) {
+      const schedule = this.defaultSchedules[i] || '0 8 * * *';
+      const duration = this.defaultDurations[i] || 15;
+      
+      await this.updateZoneSchedule(i, schedule, duration, true);
+    }
+    
+    logger.info('All schedules reset to defaults');
   }
 
   async cleanup() {

@@ -437,6 +437,9 @@
                 <button class="btn btn-info" onclick="refreshSchedules()">
                     <i class="fas fa-sync"></i> Перезапустить расписания
                 </button>
+                <button class="btn btn-danger" onclick="resetSchedules()" style="background: linear-gradient(45deg, #dc3545, #c82333);">
+                    <i class="fas fa-undo"></i> Сбросить расписания
+                </button>
             </div>
         </div>
 
@@ -757,10 +760,29 @@
         async function refreshSchedules() {
             if (confirm('Перезапустить все расписания? Это применит текущие настройки.')) {
                 try {
-                    // This would require a new API endpoint to restart schedules
-                    alert('Функция будет добавлена в следующем обновлении');
+                    // For now, just refresh the page to reload schedules
+                    location.reload();
                 } catch (error) {
                     console.error('Ошибка перезапуска расписаний:', error);
+                }
+            }
+        }
+
+        async function resetSchedules() {
+            if (confirm('Сбросить все расписания к настройкам по умолчанию? Это отменит все пользовательские настройки!')) {
+                try {
+                    const response = await fetch('/api/reset-schedules', { method: 'POST' });
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        alert('Расписания сброшены к настройкам по умолчанию');
+                        setTimeout(updateData, 1000);
+                    } else {
+                        alert('Ошибка: ' + (result.error || 'Не удалось сбросить расписания'));
+                    }
+                } catch (error) {
+                    console.error('Ошибка сброса расписаний:', error);
+                    alert('Ошибка сброса расписаний');
                 }
             }
         }
