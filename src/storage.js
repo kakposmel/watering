@@ -61,16 +61,23 @@ class Storage {
   }
 
   getDefaultSettings() {
+    const defaultSchedules = [
+      '0 8 * * *',   // Zone 1: 8:00 AM daily
+      '0 18 * * *',  // Zone 2: 6:00 PM daily  
+      '0 7,19 * * *', // Zone 3: 7:00 AM and 7:00 PM daily
+      '0 9 * * 1,3,5' // Zone 4: 9:00 AM Monday, Wednesday, Friday
+    ];
+    const defaultDurations = [15, 12, 10, 20]; // seconds
+
     return {
       zones: Array(config.relays.length).fill().map((_, i) => ({
         name: `Зона ${i + 1}`,
         enabled: true,
-        sensorEnabled: true,
-        pumpEnabled: true,
-        moistureThreshold: 'dry'
+        scheduleEnabled: true,
+        schedule: defaultSchedules[i] || '0 8 * * *',
+        waterDuration: defaultDurations[i] || 15
       })),
       system: {
-        ledEnabled: config.led.enabled,
         telegramEnabled: !!config.telegram.token
       }
     };

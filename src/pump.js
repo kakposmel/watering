@@ -47,6 +47,14 @@ class PumpController {
   }
 
   async startWatering(pumpIndex) {
+    return this.startWateringInternal(pumpIndex, config.watering.duration, 'manual');
+  }
+
+  async startScheduledWatering(pumpIndex, duration) {
+    return this.startWateringInternal(pumpIndex, duration, 'scheduled');
+  }
+
+  async startWateringInternal(pumpIndex, duration, type = 'manual') {
     if (!this.relays[pumpIndex]) {
       const errorMsg = `Реле ${pumpIndex + 1} не инициализировано`;
       logger.error(errorMsg);
@@ -61,8 +69,8 @@ class PumpController {
     const settings = this.storage ? await this.storage.loadSettings() : null;
     const zoneSettings = settings?.zones[pumpIndex];
 
-    if (zoneSettings && (!zoneSettings.enabled || !zoneSettings.pumpEnabled)) {
-      logger.warn(`Зона ${pumpIndex + 1} или насос отключены в настройках`);
+    if (zoneSettings && !zoneSettings.enabled) {
+      logger.warn(`Зона ${pumpIndex + 1} отключена в настройках`);
       return false;
     }
 
@@ -72,33 +80,31 @@ class PumpController {
       return false;
     }
 
-    // Проверяем лимит поливов в день
-    if (this.dailyWateringCount[pumpIndex] >= config.watering.maxDailyWatering) {
-      const warningMsg = `Зона ${pumpIndex + 1}: превышен лимит поливов в день (${config.watering.maxDailyWatering})`;
-      logger.warn(warningMsg);
-
-      if (this.telegramBot && this.telegramBot.bot) {
-        this.telegramBot.sendWarningNotification(warningMsg);
+    // For manual watering, keep some basic checks
+    if (type === 'manual') {
+      // Проверяем время с последнего полива (только для ручного полива)
+      const now = Date.now();
+      const minInterval = 5 * 60 * 1000; // 5 minutes minimum between manual waterings
+      if (now - this.lastWatering[pumpIndex] < minInterval) {
+        const remainingTime = Math.round((minInterval - (now - this.lastWatering[pumpIndex])) / 60000);
+        logger.warn(`Зона ${pumpIndex + 1}: слишком рано для ручного полива. Осталось ${remainingTime} минут`);
+        return false;
       }
-      return false;
-    }
-
-    // Проверяем время с последнего полива
-    const now = Date.now();
-    if (now - this.lastWatering[pumpIndex] < config.watering.cooldown) {
-      const remainingTime = Math.round((config.watering.cooldown - (now - this.lastWatering[pumpIndex])) / 60000);
-      logger.warn(`Зона ${pumpIndex + 1}: слишком рано для полива. Осталось ${remainingTime} минут`);
-      return false;
     }
 
     try {
+      const now = Date.now();
       // Включаем насос
       this.relays[pumpIndex].writeSync(0); // Активный LOW
       this.pumpStates[pumpIndex] = true;
       this.lastWatering[pumpIndex] = now;
-      this.dailyWateringCount[pumpIndex]++;
+      
+      // Only increment daily count for manual watering to preserve scheduling freedom
+      if (type === 'manual') {
+        this.dailyWateringCount[pumpIndex]++;
+      }
 
-      logger.info(`Насос ${pumpIndex + 1} включен на ${config.watering.duration}мс`);
+      logger.info(`Насос ${pumpIndex + 1} включен на ${duration}мс (${type})`);
 
       // Уведомление в Telegram о начале полива
       if (this.telegramBot && this.telegramBot.bot) {
@@ -108,11 +114,12 @@ class PumpController {
       // Сохраняем в историю
       if (this.storage) {
         await this.storage.saveHistoryEntry({
-          type: 'watering_started',
+          type: type === 'scheduled' ? 'scheduled_watering_started' : 'watering_started',
           zone: pumpIndex,
           timestamp: new Date(),
-          duration: config.watering.duration,
-          dailyCount: this.dailyWateringCount[pumpIndex]
+          duration: duration,
+          dailyCount: this.dailyWateringCount[pumpIndex],
+          wateringType: type
         });
         // Сохраняем состояние поливов
         await this.saveWateringState();
@@ -121,7 +128,7 @@ class PumpController {
       // Автоматическое выключение через заданное время
       setTimeout(async () => {
         await this.stopWatering(pumpIndex, true);
-      }, config.watering.duration);
+      }, duration);
 
       return true;
     } catch (error) {

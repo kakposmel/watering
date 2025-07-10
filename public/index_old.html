@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌿 Система автополива</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌿</text></svg>">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container { 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            padding: 15px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .header h1 {
+            color: white;
+            font-size: 2em;
+            margin-bottom: 8px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            color: rgba(255,255,255,0.9);
+            font-size: 1em;
+        }
+        
+        .zones-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .zone-card {
+            background: rgba(255,255,255,0.95);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.3);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .zone-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.15);
+        }
+        
+        .zone-card.disabled {
+            opacity: 0.6;
+            background: rgba(200,200,200,0.5);
+        }
+        
+        .zone-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        
+        .zone-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #2c3e50;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .zone-title:hover .rename-icon {
+            opacity: 1;
+        }
+        
+        .rename-icon {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            margin-left: 5px;
+            font-size: 0.8em;
+            color: #7f8c8d;
+        }
+        
+        .zone-name-input {
+            font-size: 1.1em;
+            font-weight: bold;
+            border: 2px solid #3498db;
+            border-radius: 4px;
+            padding: 2px 6px;
+            background: white;
+            color: #2c3e50;
+            width: 100%;
+            max-width: 200px;
+        }
+        
+        .zone-name-input:focus {
+            outline: none;
+            border-color: #2980b9;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 25px;
+            background: #ccc;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .toggle-switch.active {
+            background: #4CAF50;
+        }
+        
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 21px;
+            height: 21px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .toggle-switch.active::after {
+            transform: translateX(25px);
+        }
+        
+        .moisture-display {
+            text-align: center;
+            margin: 12px 0;
+        }
+        
+        .moisture-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            margin: 0 auto 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            color: white;
+            font-weight: 600;
+            font-size: 0.8em;
+            margin-bottom: 10px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+        }
+        
+        .status-air { background: linear-gradient(45deg, #8e44ad, #9b59b6); }
+        .status-dry { background: linear-gradient(45deg, #e74c3c, #c0392b); }
+        .status-moist { background: linear-gradient(45deg, #f39c12, #e67e22); }
+        .status-wet { background: linear-gradient(45deg, #27ae60, #229954); }
+        .status-water { background: linear-gradient(45deg, #3498db, #2980b9); }
+        .status-error { background: linear-gradient(45deg, #95a5a6, #7f8c8d); }
+        .status-disabled { background: linear-gradient(45deg, #bdc3c7, #95a5a6); }
+        
+        .zone-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 12px 0;
+            font-size: 0.85em;
+        }
+        
+        .info-item {
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 8px;
+            padding: 8px;
+            text-align: center;
+        }
+        
+        .info-label {
+            font-size: 0.75em;
+            color: #7f8c8d;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .info-value {
+            font-size: 0.95em;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .zone-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-primary { background: linear-gradient(45deg, #3498db, #2980b9); color: white; }
+        .btn-success { background: linear-gradient(45deg, #27ae60, #229954); color: white; }
+        .btn-danger { background: linear-gradient(45deg, #e74c3c, #c0392b); color: white; }
+        .btn-warning { background: linear-gradient(45deg, #f39c12, #e67e22); color: white; }
+        
+        .pump-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #27ae60;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        
+        .chart-container {
+            background: rgba(255,255,255,0.95);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        
+        .chart-container h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .history-container {
+            background: rgba(255,255,255,0.95);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        
+        .history-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            margin: 4px 0;
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+        
+        .history-item.watering {
+            background: rgba(39, 174, 96, 0.1);
+            border-left: 4px solid #27ae60;
+        }
+        
+        .history-item.sensor {
+            background: rgba(52, 152, 219, 0.1);
+            border-left: 4px solid #3498db;
+        }
+        
+        .controls-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .control-card {
+            background: rgba(255,255,255,0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        
+        .control-card h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .last-update {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            z-index: 1000;
+        }
+        
+        @media (max-width: 768px) {
+            .zones-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .zone-info {
+                grid-template-columns: 1fr;
+            }
+            
+            .zone-actions {
+                flex-direction: column;
+            }
+            
+            .last-update {
+                position: static;
+                margin: 10px 0;
+                text-align: center;
+            }
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 30px;
+            color: white;
+            font-size: 1.1em;
+        }
+        
+        .refresh-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #27ae60, #229954);
+            color: white;
+            border: none;
+            font-size: 1.3em;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .refresh-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.3);
+        }
+
+        .btn-scale {
+            float: left;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="last-update" id="lastUpdate">
+        <i class="fas fa-clock"></i> Последнее обновление: загрузка...
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-seedling"></i> Система автоматического полива</h1>
+            <p>Умное управление поливом для ваших растений</p>
+        </div>
+        
+        <div class="zones-grid" id="zones">
+            <div class="loading">
+                <i class="fas fa-spinner fa-spin"></i> Загрузка данных...
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <h3><i class="fas fa-chart-line"></i> История показаний датчиков влажности</h3>
+            <div style="margin-bottom: 10px; text-align: right;">
+                <button class="btn btn-primary btn-scale" id="scaleHourBtn" onclick="setChartScale('hour')">1 час</button>
+                <button class="btn btn-primary btn-scale" id="scaleDayBtn" onclick="setChartScale('day')">1 день</button>
+                <button class="btn btn-primary btn-scale" id="scaleWeekBtn" onclick="setChartScale('week')">Неделя</button>
+                <button class="btn btn-primary btn-scale" id="scaleMonthBtn" onclick="setChartScale('month')">Месяц</button>
+            </div>
+            <canvas id="moistureChart" width="400" height="200"></canvas>
+        </div>
+        
+        <div class="history-container">
+            <h3><i class="fas fa-history"></i> История поливов</h3>
+            <div class="history-list" id="historyList">
+                <div class="loading">
+                    <i class="fas fa-spinner fa-spin"></i> Загрузка истории...
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls-section">
+            <div class="control-card">
+                <h3><i class="fas fa-cogs"></i> Управление системой</h3>
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button class="btn btn-danger" onclick="stopAllPumps()">
+                        <i class="fas fa-stop"></i> Остановить все
+                    </button>
+                    <button class="btn btn-primary" onclick="testWatering()">
+                        <i class="fas fa-vial"></i> Тест полива
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <button class="refresh-btn" onclick="updateData()" title="Обновить данные">
+        <i class="fas fa-sync-alt"></i>
+    </button>
+
+    <script>
+        let moistureChart;
+        let lastUpdateTime = null;
+        let chartScale = 'day'; // 'day' | 'week' | 'month'
+        let historyData = null;
+
+        function setChartScale(scale) {
+            chartScale = scale;
+            updateChart();
+            // Highlight active button
+            document.getElementById('scaleDayBtn').classList.toggle('btn-success', scale === 'day');
+            document.getElementById('scaleWeekBtn').classList.toggle('btn-success', scale === 'week');
+            document.getElementById('scaleMonthBtn').classList.toggle('btn-success', scale === 'month');
+        }
+
+        async function updateData() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                lastUpdateTime = new Date();
+                updateLastUpdateDisplay();
+                displayZones(data);
+
+                // Fetch history ONCE and reuse
+                const historyResponse = await fetch('/api/history?limit=8640');
+                historyData = await historyResponse.json();
+
+                updateChart(historyData);
+                updateHistory(historyData);
+            } catch (error) {
+                console.error('Ошибка при получении данных:', error);
+                document.getElementById('zones').innerHTML = '<div class="loading" style="color: #e74c3c;"><i class="fas fa-exclamation-triangle"></i> Не удалось загрузить данные</div>';
+            }
+        }
+
+        function updateLastUpdateDisplay() {
+            const element = document.getElementById('lastUpdate');
+            if (lastUpdateTime) {
+                element.innerHTML = `<i class="fas fa-clock"></i> Обновлено: ${lastUpdateTime.toLocaleTimeString()}`;
+            }
+        }
+
+        function displayZones(data) {
+            const container = document.getElementById('zones');
+            container.innerHTML = '';
+
+            if (!data.sensors || !Array.isArray(data.sensors) || data.sensors.length === 0) {
+                container.innerHTML = '<div class="loading" style="color: #f39c12;"><i class="fas fa-exclamation-circle"></i> Нет данных о зонах</div>';
+                return;
+            }
+
+            data.sensors.forEach((sensor, index) => {
+                const zone = document.createElement('div');
+                zone.className = `zone-card ${sensor.status === 'disabled' ? 'disabled' : ''}`;
+
+                const pumpActive = data.pumps && data.pumps.states ? data.pumps.states[index] : false;
+                const lastWateringRaw = data.pumps && data.pumps.lastWatering ? data.pumps.lastWatering[index] : 0;
+                const lastWatering = lastWateringRaw > 0 ? new Date(lastWateringRaw).toLocaleString() : 'Никогда';
+                const dailyCount = data.pumps && data.pumps.dailyCount ? data.pumps.dailyCount[index] : 0;
+
+                const moisturePercent = (sensor.moisturePercent !== undefined && sensor.moisturePercent !== null)
+                    ? sensor.moisturePercent : 0;
+                const rawValue = (sensor.rawValue !== undefined && sensor.rawValue !== null)
+                    ? sensor.rawValue.toFixed(0) : 'нет данных';
+                const status = sensor.status || 'error';
+
+                const zoneEnabled = data.settings?.zones[index]?.enabled !== false;
+                const sensorEnabled = data.settings?.zones[index]?.sensorEnabled !== false;
+                const pumpEnabled = data.settings?.zones[index]?.pumpEnabled !== false;
+                const zoneName = data.settings?.zones[index]?.name || `Зона ${index + 1}`;
+
+                zone.innerHTML = `
+                    ${pumpActive ? '<div class="pump-indicator"></div>' : ''}
+                    
+                    <div class="zone-header">
+                        <div class="zone-title" onclick="startRename(${index})" title="Нажмите чтобы переименовать">
+                            <i class="fas fa-leaf"></i>
+                            <span class="zone-name" id="zone-name-${index}">${zoneName}</span>
+                            <i class="fas fa-edit rename-icon"></i>
+                        </div>
+                        <div class="toggle-switch ${zoneEnabled ? 'active' : ''}" 
+                             onclick="toggleZone(${index})" 
+                             title="Включить/выключить зону">
+                        </div>
+                    </div>
+                    
+                    <div class="moisture-display">
+                        <div class="moisture-circle" style="background: ${getMoistureColor(moisturePercent)}">
+                            ${status === 'disabled' ? '<i class="fas fa-power-off"></i>' : moisturePercent + '%'}
+                        </div>
+                        <div class="status-badge status-${status}">
+                            ${getStatusIcon(status)} ${getStatusText(status)}
+                        </div>
+                    </div>
+                    
+                    <div class="zone-info">
+                        <div class="info-item">
+                            <div class="info-label">Датчик</div>
+                            <div class="info-value">
+                                <i class="fas fa-${sensorEnabled ? 'check-circle' : 'times-circle'}"></i>
+                                ${sensorEnabled ? 'Вкл' : 'Выкл'}
+                                <div style="font-size: 0.7em; color: #95a5a6; margin-top: 2px;">${rawValue} мВ</div>
+                            </div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Насос</div>
+                            <div class="info-value">
+                                <i class="fas fa-${pumpEnabled ? 'check-circle' : 'times-circle'}"></i>
+                                ${pumpEnabled ? 'Вкл' : 'Выкл'}
+                            </div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Последний полив</div>
+                            <div class="info-value">${lastWatering}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Поливов сегодня</div>
+                            <div class="info-value">${dailyCount}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="zone-actions">
+                        <button class="btn btn-success" onclick="waterZone(${index})" 
+                                ${!zoneEnabled || !pumpEnabled || pumpActive ? 'disabled' : ''}>
+                            ${pumpActive ? '<i class="fas fa-spinner fa-spin"></i> Полив...' : '<i class="fas fa-tint"></i> Полить'}
+                        </button>
+                        <button class="btn btn-danger" onclick="stopPump(${index})" 
+                                ${!pumpActive ? 'disabled' : ''}>
+                            <i class="fas fa-stop"></i> Стоп
+                        </button>
+                    </div>
+                `;
+
+                container.appendChild(zone);
+            });
+        }
+
+        function getMoistureColor(percent) {
+            if (percent <= 25) return 'linear-gradient(45deg, #e74c3c, #c0392b)';
+            if (percent <= 50) return 'linear-gradient(45deg, #f39c12, #e67e22)';
+            if (percent <= 75) return 'linear-gradient(45deg, #f1c40f, #f39c12)';
+            return 'linear-gradient(45deg, #27ae60, #229954)';
+        }
+
+        function getStatusIcon(status) {
+            const icons = {
+                'air': '<i class="fas fa-wind"></i>',
+                'dry': '<i class="fas fa-fire"></i>',
+                'moist': '<i class="fas fa-seedling"></i>',
+                'wet': '<i class="fas fa-tint"></i>',
+                'water': '<i class="fas fa-water"></i>',
+                'error': '<i class="fas fa-exclamation-circle"></i>',
+                'disabled': '<i class="fas fa-power-off"></i>'
+            };
+            return icons[status] || '<i class="fas fa-question"></i>';
+        }
+
+        function getStatusText(status) {
+            const statusMap = {
+                'air': 'Воздух - подключите датчик',
+                'dry': 'Сухо - требуется полив',
+                'moist': 'Умеренная влажность',
+                'wet': 'Хорошая влажность',
+                'water': 'Очень влажно',
+                'error': 'Ошибка датчика',
+                'disabled': 'Зона отключена'
+            };
+            return statusMap[status] || status;
+        }
+
+        async function updateHistory(history) {
+            try {
+                const container = document.getElementById('historyList');
+                container.innerHTML = '';
+
+                if (!history || history.length === 0) {
+                    container.innerHTML = '<div class="loading">История пуста</div>';
+                    return;
+                }
+
+                const wateringEvents = history
+                    .filter(entry => entry.type === 'watering_started')
+                    .slice(0, 30);
+
+                if (wateringEvents.length === 0) {
+                    container.innerHTML = '<div class="loading">Нет записей о поливах</div>';
+                    return;
+                }
+
+                wateringEvents.forEach(entry => {
+                    const item = document.createElement('div');
+                    item.className = 'history-item watering';
+
+                    const action = entry.type === 'watering_started' ? 'Полив начат' : 'Полив завершен';
+                    const icon = entry.type === 'watering_started' ? 'play' : 'stop';
+                    const time = new Date(entry.timestamp).toLocaleString();
+                    const zoneText = entry.zone !== undefined ? `Зона ${entry.zone + 1}` : 'Система';
+                    const duration = entry.duration ? ` (${entry.duration}с)` : '';
+
+                    item.innerHTML = `
+                        <div>
+                            <i class="fas fa-${icon}"></i>
+                            ${action} - ${zoneText}${duration}
+                        </div>
+                        <div style="font-size: 0.8em; color: #7f8c8d;">
+                            ${time}
+                        </div>
+                    `;
+
+                    container.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки истории:', error);
+                document.getElementById('historyList').innerHTML = '<div class="loading" style="color: #e74c3c;">Ошибка загрузки истории</div>';
+            }
+        }
+
+        async function toggleZone(index) {
+            try {
+                await fetch(`/api/toggle-zone/${index}`, { method: 'POST' });
+                setTimeout(updateData, 500);
+            } catch (error) {
+                console.error('Ошибка переключения зоны:', error);
+            }
+        }
+
+        async function waterZone(index) {
+            try {
+                await fetch(`/api/water/${index}`, { method: 'POST' });
+                setTimeout(updateData, 1000);
+            } catch (error) {
+                console.error('Ошибка при запуске полива:', error);
+            }
+        }
+
+        async function stopPump(index) {
+            try {
+                await fetch(`/api/stop/${index}`, { method: 'POST' });
+                setTimeout(updateData, 1000);
+            } catch (error) {
+                console.error('Ошибка при остановке насоса:', error);
+            }
+        }
+
+        async function stopAllPumps() {
+            try {
+                await fetch('/api/stop-all', { method: 'POST' });
+                setTimeout(updateData, 1000);
+            } catch (error) {
+                console.error('Ошибка при остановке всех насосов:', error);
+            }
+        }
+
+        async function testWatering() {
+            if (confirm('Запустить тестовый полив всех активных зон на 2 секунды?')) {
+                try {
+                    await fetch('/api/test-all', { method: 'POST' });
+                    setTimeout(updateData, 1000);
+                } catch (error) {
+                    console.error('Ошибка при тестовом поливе:', error);
+                }
+            }
+        }
+
+        async function startRename(zoneIndex) {
+            const nameElement = document.getElementById(`zone-name-${zoneIndex}`);
+            const currentName = nameElement.textContent;
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentName;
+            input.className = 'zone-name-input';
+            input.maxLength = 50;
+            
+            // Replace the name span with input
+            nameElement.style.display = 'none';
+            nameElement.parentNode.insertBefore(input, nameElement);
+            input.focus();
+            input.select();
+            
+            const finishRename = async (save = false) => {
+                if (save && input.value.trim() && input.value.trim() !== currentName) {
+                    try {
+                        const response = await fetch(`/api/rename-zone/${zoneIndex}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ name: input.value.trim() })
+                        });
+                        
+                        const result = await response.json();
+                        if (result.success) {
+                            nameElement.textContent = result.name;
+                        } else {
+                            alert(result.error || 'Ошибка переименования зоны');
+                        }
+                    } catch (error) {
+                        console.error('Ошибка переименования зоны:', error);
+                        alert('Ошибка переименования зоны');
+                    }
+                }
+                
+                input.remove();
+                nameElement.style.display = '';
+            };
+            
+            input.addEventListener('blur', () => finishRename(true));
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    finishRename(true);
+                } else if (e.key === 'Escape') {
+                    finishRename(false);
+                }
+            });
+        }
+
+        async function updateChart(history) {
+            try {
+                if (!history || history.length === 0) return;
+
+                const ctx = document.getElementById('moistureChart').getContext('2d');
+                const now = new Date();
+                let fromDate, timeUnit, displayFormat;
+                if (chartScale === 'hour') {
+                    fromDate = new Date(now.getTime() - 60 * 60 * 1000);
+                    timeUnit = 'minute';
+                    displayFormat = { minute: 'HH:mm', hour: 'HH:mm' };
+                } else if (chartScale === 'day') {
+                    fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                    timeUnit = 'hour';
+                    displayFormat = { hour: 'HH:mm', day: 'dd.MM' };
+                } else if (chartScale === 'week') {
+                    fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    timeUnit = 'day';
+                    displayFormat = { day: 'dd.MM' };
+                } else {
+                    fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                    timeUnit = 'day';
+                    displayFormat = { day: 'dd.MM' };
+                }
+
+                const zones = [0, 1, 2, 3];
+                const datasets = zones.map(zone => {
+                    const zoneData = history
+                        .filter(entry =>
+                            entry.type === 'sensor_reading' &&
+                            entry.zone === zone &&
+                            new Date(entry.timestamp) >= fromDate
+                        )
+                        .map(entry => ({
+                            x: new Date(entry.timestamp),
+                            y: entry.moisturePercent || 0,
+                            rawValue: entry.rawValue || 0
+                        }));
+
+                    return {
+                        label: `Зона ${zone + 1}`,
+                        data: zoneData,
+                        borderColor: `hsl(${zone * 90}, 70%, 50%)`,
+                        backgroundColor: `hsla(${zone * 90}, 70%, 50%, 0.1)`,
+                        tension: 0.4,
+                        fill: false
+                    };
+                }).filter(dataset => dataset.data.length > 0);
+
+                if (moistureChart) {
+                    moistureChart.destroy();
+                }
+
+                moistureChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        responsive: true,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                min: fromDate,
+                                max: now,
+                                time: {
+                                    unit: timeUnit,
+                                    displayFormats: displayFormat
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Время'
+                                }
+                            },
+                            y: {
+                                min: 0,
+                                max: 100,
+                                title: {
+                                    display: true,
+                                    text: 'Влажность (%)'
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const dataPoint = context.raw;
+                                        return `${context.dataset.label}: ${dataPoint.y}% (${dataPoint.rawValue} мВ)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Ошибка обновления графика:', error);
+            }
+        }
+
+        // Auto-highlight default scale button on load
+        window.addEventListener('DOMContentLoaded', () => {
+            setChartScale('day');
+        });
+
+        // Auto-refresh every 30 seconds
+        setInterval(updateData, 30000);
+
+        // Initial load
+        updateData();
+</script>
+</body>
+</html>

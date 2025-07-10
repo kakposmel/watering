@@ -3,9 +3,8 @@ const express = require('express');
 const path = require('path');
 const MoistureSensor = require('./src/moisture');
 const PumpController = require('./src/pump');
-const AutoWateringScheduler = require('./src/scheduler');
+const ScheduleController = require('./src/scheduleController');
 const TelegramBotController = require('./src/telegram');
-const LEDController = require('./src/led');
 const Storage = require('./src/storage');
 const config = require('./src/config');
 const logger = require('./src/logger');
@@ -14,18 +13,15 @@ const app = express();
 
 // Инициализация компонентов
 const storage = new Storage();
-const moistureSensor = new MoistureSensor();
-const ledController = new LEDController();
+const moistureSensor = new MoistureSensor(); // Keep for potential future use
 const pumpController = new PumpController();
 const telegramBot = new TelegramBotController(moistureSensor, pumpController);
-const scheduler = new AutoWateringScheduler(moistureSensor, pumpController, telegramBot, ledController);
+const scheduleController = new ScheduleController(pumpController, telegramBot);
 
 // Связываем компоненты с хранилищем
 moistureSensor.setStorage(storage);
 pumpController.setStorage(storage);
-
-// Связываем telegram bot с датчиками для уведомлений об ошибках
-moistureSensor.setTelegramBot(telegramBot);
+scheduleController.setStorage(storage);
 
 // Middleware
 app.use(express.json());
@@ -34,19 +30,34 @@ app.use(express.static(path.join(__dirname, 'public')));
 // API Routes
 app.get('/api/status', async (req, res) => {
   try {
-    const sensors = await moistureSensor.readAllSensors();
     const pumps = pumpController.getPumpStates();
     const settings = await storage.loadSettings();
+    const scheduleInfo = await scheduleController.getAllScheduleInfo();
     
-    // Обновляем LED на основе показаний датчиков
-    if (config.led.enabled) {
-      ledController.updateFromSensorReadings(sensors);
+    // Create zone status including schedule information
+    const zones = [];
+    for (let i = 0; i < config.relays.length; i++) {
+      const zoneSettings = settings?.zones[i];
+      const scheduleData = scheduleInfo[i];
+      
+      zones.push({
+        index: i,
+        name: zoneSettings?.name || `Зона ${i + 1}`,
+        enabled: zoneSettings?.enabled || false,
+        scheduleEnabled: zoneSettings?.scheduleEnabled || false,
+        schedule: zoneSettings?.schedule || '',
+        waterDuration: zoneSettings?.waterDuration || 15,
+        isWatering: pumps.states[i] || false,
+        nextWatering: scheduleData?.nextWatering,
+        lastWatering: pumps.lastWatering[i] || 0
+      });
     }
     
     res.json({
-      sensors,
+      zones,
       pumps,
       settings,
+      scheduleInfo,
       timestamp: new Date()
     });
   } catch (error) {
@@ -191,6 +202,84 @@ app.post('/api/stop-all', async (req, res) => {
   }
 });
 
+// New API endpoints for schedule management
+app.post('/api/schedule/:zone', async (req, res) => {
+  const zone = parseInt(req.params.zone);
+  const { schedule, duration, enabled } = req.body;
+  
+  if (zone < 0 || zone >= config.relays.length) {
+    return res.status(400).json({ error: 'Неверный номер зоны' });
+  }
+  
+  try {
+    const success = await scheduleController.updateZoneSchedule(zone, schedule, duration, enabled);
+    
+    if (success) {
+      // Notify Telegram about schedule change
+      if (telegramBot.bot) {
+        const settings = await storage.loadSettings();
+        const zoneName = settings?.zones[zone]?.name || `Зона ${zone + 1}`;
+        telegramBot.sendSystemNotification(
+          `Расписание "${zoneName}" обновлено: ${schedule}, ${duration}с`
+        );
+      }
+      
+      res.json({ 
+        success: true, 
+        message: `Расписание зоны ${zone + 1} обновлено` 
+      });
+    } else {
+      res.status(400).json({ error: 'Не удалось обновить расписание' });
+    }
+  } catch (error) {
+    logger.error(`Ошибка обновления расписания зоны ${zone + 1}:`, error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.post('/api/toggle-schedule/:zone', async (req, res) => {
+  const zone = parseInt(req.params.zone);
+  
+  if (zone < 0 || zone >= config.relays.length) {
+    return res.status(400).json({ error: 'Неверный номер зоны' });
+  }
+  
+  try {
+    const settings = await storage.loadSettings();
+    const zoneSettings = settings.zones[zone];
+    const newScheduleEnabled = !zoneSettings.scheduleEnabled;
+    
+    const success = await scheduleController.updateZoneSchedule(
+      zone, 
+      zoneSettings.schedule, 
+      zoneSettings.waterDuration, 
+      newScheduleEnabled
+    );
+    
+    if (success) {
+      const zoneName = zoneSettings?.name || `Зона ${zone + 1}`;
+      
+      // Notify Telegram
+      if (telegramBot.bot) {
+        telegramBot.sendSystemNotification(
+          `Расписание "${zoneName}" ${newScheduleEnabled ? 'включено' : 'отключено'}`
+        );
+      }
+      
+      res.json({ 
+        success: true, 
+        enabled: newScheduleEnabled,
+        message: `Расписание зоны ${zone + 1} ${newScheduleEnabled ? 'включено' : 'отключено'}`
+      });
+    } else {
+      res.status(400).json({ error: 'Не удалось переключить расписание' });
+    }
+  } catch (error) {
+    logger.error(`Ошибка переключения расписания зоны ${zone + 1}:`, error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 app.post('/api/test-all', async (req, res) => {
   try {
     for (let i = 0; i < config.relays.length; i++) {
@@ -221,18 +310,14 @@ app.get('/', (req, res) => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   logger.info('Получен сигнал SIGINT, завершение работы...');
-  if (config.led.enabled) {
-    ledController.cleanup();
-  }
+  await scheduleController.cleanup();
   await pumpController.cleanup();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   logger.info('Получен сигнал SIGTERM, завершение работы...');
-  if (config.led.enabled) {
-    ledController.cleanup();
-  }
+  await scheduleController.cleanup();
   await pumpController.cleanup();
   process.exit(0);
 });
@@ -252,20 +337,6 @@ async function initializeSystem() {
     await storage.initialize();
     logger.info('Хранилище инициализировано');
     
-    // Инициализация датчиков влажности
-    const sensorInit = await moistureSensor.initialize();
-    if (!sensorInit) {
-      const errorMsg = 'Критическая ошибка: не удалось инициализировать датчики влажности';
-      logger.error(errorMsg);
-      
-      // Отправляем критическую ошибку в Telegram перед выходом
-      if (telegramBot.initialize()) {
-        await telegramBot.sendErrorNotification('Критическая ошибка системы', errorMsg);
-      }
-      process.exit(1);
-    }
-    logger.info('Датчики влажности инициализированы');
-    
     // Инициализация контроллера насосов
     const pumpInit = await pumpController.initialize();
     if (!pumpInit) {
@@ -274,31 +345,23 @@ async function initializeSystem() {
       logger.info('Контроллер насосов инициализирован');
     }
     
-    // Инициализация LED индикатора (опционально)
-    if (config.led.enabled) {
-      const ledInit = ledController.initialize();
-      if (ledInit) {
-        logger.info('LED индикатор подключен');
-      } else {
-        logger.warn('LED индикатор не удалось инициализировать');
-      }
-    } else {
-      logger.info('LED индикатор отключен в конфигурации');
-    }
-    
     // Инициализация Telegram bot
     const telegramInit = telegramBot.initialize();
     if (telegramInit) {
       logger.info('Telegram bot подключен');
       // Отправляем уведомление о запуске системы
-      await telegramBot.sendSystemNotification('🌿 Система автополива запущена и готова к работе');
+      await telegramBot.sendSystemNotification('🌿 Система автополива запущена с расписанием');
     } else {
       logger.warn('Telegram bot не настроен - продолжаем без него');
     }
     
-    // Запуск планировщика
-    scheduler.start();
-    logger.info('Планировщик автополива запущен');
+    // Инициализация контроллера расписания
+    const scheduleInit = await scheduleController.initialize();
+    if (scheduleInit) {
+      logger.info('Контроллер расписания инициализирован');
+    } else {
+      logger.error('Ошибка инициализации контроллера расписания');
+    }
     
     // Запуск веб-сервера
     app.listen(config.server.port, '0.0.0.0', () => {
