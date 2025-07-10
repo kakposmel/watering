@@ -58,18 +58,9 @@ class ScheduleController {
     await this.stopZoneSchedule(zoneIndex);
     
     try {
-      // Validate cron schedule with both libraries
+      // Validate cron schedule with node-cron
       if (!cron.validate(cronSchedule)) {
-        logger.error(`Invalid cron schedule (node-cron) for zone ${zoneIndex + 1}: ${cronSchedule}`);
-        return false;
-      }
-      
-      // Also validate with cron-parser to ensure compatibility
-      try {
-        const parser = require('cron-parser');
-        parser.parseExpression(cronSchedule);
-      } catch (parseError) {
-        logger.error(`Invalid cron schedule (cron-parser) for zone ${zoneIndex + 1}: ${cronSchedule}`, parseError);
+        logger.error(`Invalid cron schedule for zone ${zoneIndex + 1}: ${cronSchedule}`);
         return false;
       }
 
@@ -201,18 +192,109 @@ class ScheduleController {
         return null;
       }
 
-      const parser = require('cron-parser');
       const schedule = zoneSettings.schedule;
       
-      try {
-        const interval = parser.parseExpression(schedule);
-        return interval.next().toDate();
-      } catch (parseError) {
-        logger.error(`Invalid cron expression for zone ${zoneIndex + 1}: ${schedule}`, parseError);
-        return null;
-      }
+      // Simple next time calculation for common patterns
+      return this.calculateNextExecution(schedule);
     } catch (error) {
       logger.error(`Error calculating next watering time for zone ${zoneIndex + 1}:`, error);
+      return null;
+    }
+  }
+
+  calculateNextExecution(cronExpression) {
+    try {
+      const parts = cronExpression.split(' ');
+      if (parts.length !== 5) return null;
+      
+      const [minute, hour, day, month, dayOfWeek] = parts;
+      const now = new Date();
+      const next = new Date(now);
+      
+      // Handle simple daily schedules (most common case)
+      if (day === '*' && month === '*' && dayOfWeek === '*') {
+        const targetHour = parseInt(hour);
+        const targetMinute = parseInt(minute);
+        
+        if (isNaN(targetHour) || isNaN(targetMinute)) {
+          // Handle multiple hours like "7,19"
+          if (hour.includes(',')) {
+            const hours = hour.split(',').map(h => parseInt(h.trim())).filter(h => !isNaN(h));
+            let nextHour = null;
+            
+            for (const h of hours) {
+              if (h > now.getHours() || (h === now.getHours() && targetMinute > now.getMinutes())) {
+                nextHour = h;
+                break;
+              }
+            }
+            
+            if (nextHour === null) {
+              // Next execution is tomorrow at first hour
+              next.setDate(next.getDate() + 1);
+              next.setHours(hours[0], targetMinute, 0, 0);
+            } else {
+              next.setHours(nextHour, targetMinute, 0, 0);
+            }
+            return next;
+          }
+          return null;
+        }
+        
+        next.setHours(targetHour, targetMinute, 0, 0);
+        
+        // If time has passed today, move to tomorrow
+        if (next <= now) {
+          next.setDate(next.getDate() + 1);
+        }
+        
+        return next;
+      }
+      
+      // Handle weekly schedules
+      if (day === '*' && month === '*' && dayOfWeek !== '*') {
+        const targetHour = parseInt(hour);
+        const targetMinute = parseInt(minute);
+        
+        if (isNaN(targetHour) || isNaN(targetMinute)) return null;
+        
+        const daysOfWeek = dayOfWeek.split(',').map(d => parseInt(d.trim()));
+        const currentDay = now.getDay();
+        
+        let nextDay = null;
+        let daysToAdd = 0;
+        
+        // Find next matching day
+        for (let i = 0; i < 7; i++) {
+          const checkDay = (currentDay + i) % 7;
+          if (daysOfWeek.includes(checkDay)) {
+            if (i === 0) {
+              // Today - check if time hasn't passed
+              const todayTarget = new Date(now);
+              todayTarget.setHours(targetHour, targetMinute, 0, 0);
+              if (todayTarget > now) {
+                return todayTarget;
+              }
+            } else {
+              daysToAdd = i;
+              break;
+            }
+          }
+        }
+        
+        if (daysToAdd > 0) {
+          next.setDate(next.getDate() + daysToAdd);
+          next.setHours(targetHour, targetMinute, 0, 0);
+          return next;
+        }
+        
+        return null;
+      }
+      
+      // For complex patterns, return null (fallback)
+      return null;
+    } catch (error) {
+      logger.error('Error in calculateNextExecution:', error);
       return null;
     }
   }
