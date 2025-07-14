@@ -61,7 +61,14 @@ const zoneName = this.escapeMarkdown(zoneSettings?.name || `Зона ${index + 1
           message += '\n';
         }
 
-        await this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        // Try Markdown first, fallback to plain text if it fails
+        try {
+          await this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        } catch (parseError) {
+          // If Markdown parsing fails, send as plain text
+          const plainMessage = message.replace(/\*/g, '').replace(/\\/g, '');
+          await this.bot.sendMessage(chatId, plainMessage);
+        }
       } catch (error) {
         logger.error('Ошибка получения данных расписания:', error);
         await this.bot.sendMessage(chatId, '❌ Ошибка получения данных расписания');
@@ -117,7 +124,14 @@ const zoneName = this.escapeMarkdown(settings?.zones[index]?.name || `Зона $
           message += `Последний полив: ${lastWatering}\n\n`;
         }
 
-        await this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        // Try Markdown first, fallback to plain text if it fails
+        try {
+          await this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        } catch (parseError) {
+          // If Markdown parsing fails, send as plain text
+          const plainMessage = message.replace(/\*/g, '').replace(/\\/g, '');
+          await this.bot.sendMessage(chatId, plainMessage);
+        }
       } catch (error) {
         logger.error('Ошибка получения состояния системы:', error);
         await this.bot.sendMessage(chatId, '❌ Ошибка получения данных системы');
@@ -268,12 +282,20 @@ await this.bot.sendMessage(chatId, `❌ Не удалось запустить �
     try {
       const settings = this.moistureSensor.storage ? await this.moistureSensor.storage.loadSettings() : null;
       const zoneName = settings?.zones[zone]?.name || `Зона ${zone + 1}`;
+      const safeZoneName = this.escapeMarkdown(zoneName);
       const actionText = action === 'started' ? 'запущен' : 'завершен';
       const emoji = action === 'started' ? '💧' : '✅';
       
-      const message = `${emoji} *Полив "${zoneName}" ${actionText}*\n\nВремя: ${new Date().toLocaleString('ru-RU')}`;
+      const message = `${emoji} *Полив "${safeZoneName}" ${actionText}*\n\nВремя: ${new Date().toLocaleString('ru-RU')}`;
       
-      await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      // Try Markdown first, fallback to plain text if it fails
+      try {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      } catch (parseError) {
+        // If Markdown parsing fails, send as plain text
+        const plainMessage = message.replace(/\*/g, '').replace(/\\/g, '');
+        await this.bot.sendMessage(this.chatId, plainMessage);
+      }
     } catch (error) {
       logger.error('Ошибка отправки уведомления в Telegram:', error);
     }
@@ -288,7 +310,14 @@ await this.bot.sendMessage(chatId, `❌ Не удалось запустить �
       const safeZoneName = this.escapeMarkdown(zoneName);
       const message = `📅 *Запланированный полив*\n\n"${safeZoneName}" поливается по расписанию\nДлительность: ${duration} сек\nВремя: ${new Date().toLocaleString('ru-RU')}`;
       
-      await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      // Try Markdown first, fallback to plain text if it fails
+      try {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      } catch (parseError) {
+        // If Markdown parsing fails, send as plain text
+        const plainMessage = message.replace(/\*/g, '').replace(/\\/g, '');
+        await this.bot.sendMessage(this.chatId, plainMessage);
+      }
     } catch (error) {
       logger.error('Ошибка отправки уведомления о запланированном поливе:', error);
     }
@@ -329,7 +358,17 @@ await this.bot.sendMessage(chatId, `❌ Не удалось запустить �
     if (!this.bot || !this.chatId) return;
 
     try {
-      await this.bot.sendMessage(this.chatId, `🔧 *Система:* ${message}`, { parse_mode: 'Markdown' });
+      const safeMessage = this.escapeMarkdown(message);
+      const fullMessage = `🔧 *Система:* ${safeMessage}`;
+      
+      // Try Markdown first, fallback to plain text if it fails
+      try {
+        await this.bot.sendMessage(this.chatId, fullMessage, { parse_mode: 'Markdown' });
+      } catch (parseError) {
+        // If Markdown parsing fails, send as plain text
+        const plainMessage = fullMessage.replace(/\*/g, '').replace(/\\/g, '');
+        await this.bot.sendMessage(this.chatId, plainMessage);
+      }
     } catch (error) {
       logger.error('Ошибка отправки системного уведомления:', error);
     }
@@ -339,7 +378,17 @@ await this.bot.sendMessage(chatId, `❌ Не удалось запустить �
     if (!this.bot || !this.chatId) return;
 
     try {
-      await this.bot.sendMessage(this.chatId, `⚠️ *Предупреждение:* ${message}`, { parse_mode: 'Markdown' });
+      const safeMessage = this.escapeMarkdown(message);
+      const fullMessage = `⚠️ *Предупреждение:* ${safeMessage}`;
+      
+      // Try Markdown first, fallback to plain text if it fails
+      try {
+        await this.bot.sendMessage(this.chatId, fullMessage, { parse_mode: 'Markdown' });
+      } catch (parseError) {
+        // If Markdown parsing fails, send as plain text
+        const plainMessage = fullMessage.replace(/\*/g, '').replace(/\\/g, '');
+        await this.bot.sendMessage(this.chatId, plainMessage);
+      }
     } catch (error) {
       logger.error('Ошибка отправки предупреждения:', error);
     }
@@ -349,8 +398,18 @@ await this.bot.sendMessage(chatId, `❌ Не удалось запустить �
     if (!this.bot || !this.chatId) return;
 
     try {
-      const message = `❌ *Ошибка:* ${title}\n\nДетали: ${details}\nВремя: ${new Date().toLocaleString('ru-RU')}`;
-      await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      const safeTitle = this.escapeMarkdown(title);
+      const safeDetails = this.escapeMarkdown(details);
+      const message = `❌ *Ошибка:* ${safeTitle}\n\nДетали: ${safeDetails}\nВремя: ${new Date().toLocaleString('ru-RU')}`;
+      
+      // Try Markdown first, fallback to plain text if it fails
+      try {
+        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+      } catch (parseError) {
+        // If Markdown parsing fails, send as plain text
+        const plainMessage = message.replace(/\*/g, '').replace(/\\/g, '');
+        await this.bot.sendMessage(this.chatId, plainMessage);
+      }
     } catch (error) {
       logger.error('Ошибка отправки уведомления об ошибке:', error);
     }
